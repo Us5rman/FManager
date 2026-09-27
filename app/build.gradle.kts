@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "fmanager"
+    namespace = "com.fmanager.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "fmanager"
+        applicationId = "com.fmanager.app"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
