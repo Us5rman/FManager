@@ -45,7 +45,7 @@ import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
-import coil.svg.SvgDecoder
+import coil.decode.SvgDecoder
 import fmanager.model.FileItem
 import fmanager.model.OpenKind
 import kotlinx.coroutines.delay
