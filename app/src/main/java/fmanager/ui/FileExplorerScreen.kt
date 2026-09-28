@@ -1,6 +1,5 @@
 package fmanager.ui
 
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -12,11 +11,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -25,7 +26,6 @@ import fmanager.model.FileItem
 import fmanager.model.FileOps
 import fmanager.model.FileTypes
 import fmanager.model.OpenKind
-import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
@@ -42,6 +42,7 @@ fun formatSize(b: Long): String {
 fun FileExplorerScreen(viewModel: FileManagerViewModel) {
     val editing by viewModel.editing.collectAsState()
     val viewer by viewModel.viewer.collectAsState()
+    var settingsOpen by remember { mutableStateOf(false) }
     val e = editing
     val v = viewer
     when {
@@ -50,27 +51,25 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
             OpenKind.IMAGE -> ImageViewerScreen(v.item) { viewModel.closeViewer() }
             else -> MediaPlayerScreen(v.item, v.kind == OpenKind.VIDEO) { viewModel.closeViewer() }
         }
-        else -> BrowserScreen(viewModel)
+        settingsOpen -> SettingsScreen { settingsOpen = false }
+        else -> BrowserScreen(viewModel) { settingsOpen = true }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BrowserScreen(viewModel: FileManagerViewModel) {
+private fun BrowserScreen(viewModel: FileManagerViewModel, onOpenSettings: () -> Unit) {
     val context = LocalContext.current
     val currentPath by viewModel.currentPath.collectAsState()
     val fileList by viewModel.fileList.collectAsState()
     val clip by viewModel.clip.collectAsState()
     val message by viewModel.message.collectAsState()
     val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
 
     var actionTarget by remember { mutableStateOf<FileItem?>(null) }
     var openAsTarget by remember { mutableStateOf<FileItem?>(null) }
     var renameTarget by remember { mutableStateOf<FileItem?>(null) }
     var propsTarget by remember { mutableStateOf<FileItem?>(null) }
-    var update by remember { mutableStateOf<UpdateInfo?>(null) }
-    var busy by remember { mutableStateOf(false) }
 
     // Stable callbacks: rows don't recompose while scrolling
     val onItemClick = remember<(FileItem) -> Unit> {
@@ -103,24 +102,8 @@ private fun BrowserScreen(viewModel: FileManagerViewModel) {
                     )
                 },
                 actions = {
-                    IconButton(onClick = {
-                        if (busy) return@IconButton
-                        scope.launch {
-                            busy = true
-                            val r = runCatching { Updater.check(context) }
-                            busy = false
-                            r.onSuccess { info ->
-                                if (info == null) {
-                                    Toast.makeText(context, "You're up to date", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    update = info
-                                }
-                            }.onFailure {
-                                Toast.makeText(context, "Update check failed", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }) {
-                        Icon(Icons.Default.SystemUpdate, contentDescription = "Check for updates")
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
                 }
             )
@@ -145,9 +128,6 @@ private fun BrowserScreen(viewModel: FileManagerViewModel) {
                 contentType = { if (it.isDirectory) 0 else 1 }
             ) { item ->
                 FileRowItem(item, onItemClick, onItemLongClick)
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                )
             }
         }
     }
@@ -237,36 +217,6 @@ private fun BrowserScreen(viewModel: FileManagerViewModel) {
             confirmButton = { TextButton(onClick = { propsTarget = null }) { Text("Close") } }
         )
     }
-
-    update?.let { u ->
-        AlertDialog(
-            onDismissRequest = { if (!busy) update = null },
-            title = { Text("Update available") },
-            text = {
-                Text(
-                    if (busy) "Downloading..."
-                    else "Version ${u.version} is available. You have ${Updater.currentVersion(context)}."
-                )
-            },
-            confirmButton = {
-                TextButton(enabled = !busy, onClick = {
-                    scope.launch {
-                        busy = true
-                        val r = runCatching { Updater.download(context, u.url) }
-                        busy = false
-                        r.onSuccess { apk ->
-                            if (Updater.install(context, apk)) update = null
-                        }.onFailure {
-                            Toast.makeText(context, "Download failed", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }) { Text("Update") }
-            },
-            dismissButton = {
-                TextButton(enabled = !busy, onClick = { update = null }) { Text("Later") }
-            }
-        )
-    }
 }
 
 @Composable
@@ -284,14 +234,24 @@ fun FileRowItem(
     onClick: (FileItem) -> Unit,
     onLongClick: (FileItem) -> Unit
 ) {
+    val divider = MaterialTheme.colorScheme.outlineVariant
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .height(64.dp)
             .combinedClickable(
                 onClick = { onClick(item) },
                 onLongClick = { onLongClick(item) }
             )
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .drawBehind {
+                drawLine(
+                    color = divider,
+                    start = Offset(0f, size.height),
+                    end = Offset(size.width, size.height),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         val primary = MaterialTheme.colorScheme.primary
