@@ -2,12 +2,7 @@ package fmanager.ui.theme
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
@@ -16,16 +11,24 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+
+enum class RgbMode(val label: String) {
+    SPECTRUM("Smooth Spectrum"),
+    RIGHT_TO_LEFT("Right to Left"),
+    LEFT_TO_RIGHT("Left to Right"),
+    TOP_TO_BOTTOM("Top to Bottom"),
+    BOTTOM_TO_TOP("Bottom to Top"),
+    PULSE("Breathing Pulse"),
+    CYBER_WAVE("Cyberpunk Wave")
+}
 
 data class ThemeSpec(
     val id: String,
@@ -47,7 +50,6 @@ data class ThemePreset(
 }
 
 val presetThemes = listOf(
-    // Fluorite: default
     ThemePreset(
         "fluorite", "Fluorite",
         light = ThemeSpec(
@@ -65,20 +67,19 @@ val presetThemes = listOf(
             gradient = listOf(Color(0xFF041009), Color(0xFF0A2618), Color(0xFF104A31))
         )
     ),
-    // RGB Chroma: Pure Black / Pure White background with vibrant dynamic accent
     ThemePreset(
-        "rgb", "RGB Chroma",
+        "rgb", "RGB",
         light = ThemeSpec(
-            "rgb", "RGB Chroma", false,
+            "rgb", "RGB", false,
             primary = Color(0xFFFF0055),
-            background = Color(0xFFFFFFFF), // Pure White
-            surface = Color(0xFFF2F2F7)    // Solid surface for menus/sheets
+            background = Color(0xFFFFFFFF),
+            surface = Color(0xFFF2F2F7)
         ),
         dark = ThemeSpec(
-            "rgb", "RGB Chroma", true,
+            "rgb", "RGB", true,
             primary = Color(0xFF00FFCC),
-            background = Color(0xFF000000), // Pure Pitch Black
-            surface = Color(0xFF18181A)    // Solid dark surface for menus/sheets
+            background = Color(0xFF000000),
+            surface = Color(0xFF18181A)
         )
     ),
     ThemePreset(
@@ -158,6 +159,11 @@ object ThemeSettings {
     var customBackground by mutableStateOf(0xFFE6F8EE.toInt())
         private set
 
+    var rgbMode by mutableStateOf(RgbMode.SPECTRUM)
+        private set
+    var rgbOutlineEnabled by mutableStateOf(false)
+        private set
+
     fun init(context: Context) {
         val p = context.applicationContext
             .getSharedPreferences("fmanager_theme", Context.MODE_PRIVATE)
@@ -166,11 +172,25 @@ object ThemeSettings {
         themeId = if (saved == "default" || saved == "forest") DEFAULT_ID else saved
         customAccent = p.getInt("accent", customAccent)
         customBackground = p.getInt("background", customBackground)
+
+        val savedMode = p.getString("rgb_mode", RgbMode.SPECTRUM.name) ?: RgbMode.SPECTRUM.name
+        rgbMode = runCatching { RgbMode.valueOf(savedMode) }.getOrDefault(RgbMode.SPECTRUM)
+        rgbOutlineEnabled = p.getBoolean("rgb_outline", false)
     }
 
     fun setTheme(id: String) {
         themeId = id
         prefs?.edit()?.putString("theme", id)?.apply()
+    }
+
+    fun setRgbMode(mode: RgbMode) {
+        rgbMode = mode
+        prefs?.edit()?.putString("rgb_mode", mode.name)?.apply()
+    }
+
+    fun setRgbOutline(enabled: Boolean) {
+        rgbOutlineEnabled = enabled
+        prefs?.edit()?.putBoolean("rgb_outline", enabled)?.apply()
     }
 
     fun updateCustom(accent: Int? = null, background: Int? = null) {
@@ -206,34 +226,57 @@ object ThemeSettings {
     }
 }
 
-// Helper composable to get animated HSV color for RGB mode
+// Creative RGB animation helper with custom modes and slowed-down timing
 @Composable
-fun rememberRgbColor(durationMillis: Int = 3500): Color {
-    val infiniteTransition = rememberInfiniteTransition(label = "rgb_loop")
-    val hue by infiniteTransition.animateFloat(
+fun rememberRgbColor(
+    mode: RgbMode = ThemeSettings.rgbMode,
+    durationMillis: Int = 10000 // 10 seconds for smooth slow change
+): Color {
+    val transition = rememberInfiniteTransition(label = "rgb_anim")
+    val progress by transition.animateFloat(
         initialValue = 0f,
-        targetValue = 360f,
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "hue"
+        label = "progress"
     )
-    return Color.hsv(hue, 0.85f, 1f)
+
+    return when (mode) {
+        RgbMode.SPECTRUM -> Color.hsv(progress * 360f, 0.85f, 1f)
+        RgbMode.RIGHT_TO_LEFT -> Color.hsv((1f - progress) * 360f, 0.85f, 1f)
+        RgbMode.LEFT_TO_RIGHT -> Color.hsv(progress * 360f, 0.85f, 1f)
+        RgbMode.TOP_TO_BOTTOM -> Color.hsv((progress * 360f + 90f) % 360f, 0.85f, 1f)
+        RgbMode.BOTTOM_TO_TOP -> Color.hsv((progress * 360f + 270f) % 360f, 0.85f, 1f)
+        RgbMode.PULSE -> {
+            val pulseVal = (kotlin.math.sin(progress * 2 * kotlin.math.PI).toFloat() + 1f) / 2f
+            Color.hsv(280f, 0.4f + pulseVal * 0.6f, 0.6f + pulseVal * 0.4f)
+        }
+        RgbMode.CYBER_WAVE -> {
+            val colors = listOf(Color(0xFFFF007F), Color(0xFF00E5FF), Color(0xFFFFEA00), Color(0xFF7C4DFF))
+            val scaled = progress * (colors.size - 1)
+            val idx = scaled.toInt()
+            val fraction = scaled - idx
+            val nextIdx = (idx + 1) % colors.size
+            lerp(colors[idx], colors[nextIdx], fraction)
+        }
+    }
 }
 
-private fun buildScheme(s: ThemeSpec, activePrimary: Color): ColorScheme {
+private fun buildScheme(s: ThemeSpec, activePrimary: Color, rgbOutline: Boolean): ColorScheme {
     val glass = s.gradient != null
     val onSurface = if (s.dark) Color(0xFFECE6F0) else Color(0xFF1C1B1F)
     val primaryColor = activePrimary
     val onPrimary = if (primaryColor.luminance() > 0.5f) Color.Black else Color.White
     
-    // Ensure bottom sheets, dialogs, and popups use solid surface color
     val solidSurface = s.surface.copy(alpha = 1f)
     val primaryContainer = lerp(solidSurface, primaryColor, 0.25f)
     val page = if (glass) Color.Transparent else s.background
 
     val base = if (s.dark) darkColorScheme() else lightColorScheme()
+    val outlineColor = if (rgbOutline) activePrimary.copy(alpha = 0.8f) else onSurface.copy(alpha = 0.4f)
+
     return base.copy(
         primary = primaryColor,
         onPrimary = onPrimary,
@@ -245,13 +288,13 @@ private fun buildScheme(s: ThemeSpec, activePrimary: Color): ColorScheme {
         onSecondaryContainer = onSurface,
         background = page,
         onBackground = onSurface,
-        surface = solidSurface, // FIXED: Non-transparent container surface
+        surface = solidSurface,
         onSurface = onSurface,
         surfaceTint = Color.Transparent,
         surfaceVariant = lerp(solidSurface, onSurface, 0.08f),
         onSurfaceVariant = onSurface.copy(alpha = 0.7f),
-        outline = onSurface.copy(alpha = 0.4f),
-        outlineVariant = onSurface.copy(alpha = 0.2f)
+        outline = outlineColor,
+        outlineVariant = outlineColor.copy(alpha = 0.5f)
     )
 }
 
@@ -263,7 +306,12 @@ fun FManagerTheme(content: @Composable () -> Unit) {
     val dynamicRgbColor = rememberRgbColor()
 
     val currentPrimary = if (isRgb) dynamicRgbColor else spec.primary
-    val scheme = remember(spec, currentPrimary) { buildScheme(spec, currentPrimary) }
+    val rgbOutline = isRgb && ThemeSettings.rgbOutlineEnabled
+
+    val scheme = remember(spec, currentPrimary, rgbOutline) { 
+        buildScheme(spec, currentPrimary, rgbOutline) 
+    }
+    
     val bg = spec.gradient
         ?.let { Modifier.background(Brush.linearGradient(it)) }
         ?: Modifier.background(spec.background)
