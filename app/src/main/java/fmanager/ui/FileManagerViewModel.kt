@@ -1,7 +1,9 @@
 package fmanager.ui
 
+import android.app.Application
+import android.content.Context
 import android.os.Environment
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import fmanager.model.ArchiveOps
 import fmanager.model.FileItem
@@ -13,6 +15,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -21,7 +24,10 @@ import kotlin.coroutines.coroutineContext
 enum class ClipMode { COPY, MOVE }
 data class Clip(val path: String, val mode: ClipMode)
 
-class FileManagerViewModel : ViewModel() {
+class FileManagerViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val prefs = application.getSharedPreferences("fmanager_settings", Context.MODE_PRIVATE)
+
     val rootPath: String = Environment.getExternalStorageDirectory().absolutePath
 
     private val _currentPath = MutableStateFlow(rootPath)
@@ -51,15 +57,65 @@ class FileManagerViewModel : ViewModel() {
     fun openViewer(item: FileItem, kind: OpenKind) { _viewer.value = ViewerTarget(item, kind) }
     fun closeViewer() { _viewer.value = null }
 
+    // --- Settings State ---
+    private val _showHiddenFiles = MutableStateFlow(prefs.getBoolean("show_hidden", false))
+    val showHiddenFiles: StateFlow<Boolean> = _showHiddenFiles.asStateFlow()
+
+    private val _foldersFirst = MutableStateFlow(prefs.getBoolean("folders_first", true))
+    val foldersFirst: StateFlow<Boolean> = _foldersFirst.asStateFlow()
+
+    private val _compactSpacing = MutableStateFlow(prefs.getBoolean("compact_density", false))
+    val compactSpacing: StateFlow<Boolean> = _compactSpacing.asStateFlow()
+
+    private val _viewMode = MutableStateFlow(prefs.getString("view_mode", "List") ?: "List")
+    val viewMode: StateFlow<String> = _viewMode.asStateFlow()
+
+    fun toggleShowHiddenFiles(enabled: Boolean) {
+        _showHiddenFiles.value = enabled
+        prefs.edit().putBoolean("show_hidden", enabled).apply()
+        refresh()
+    }
+
+    fun toggleFoldersFirst(enabled: Boolean) {
+        _foldersFirst.value = enabled
+        prefs.edit().putBoolean("folders_first", enabled).apply()
+        refresh()
+    }
+
+    fun toggleCompactSpacing(enabled: Boolean) {
+        _compactSpacing.value = enabled
+        prefs.edit().putBoolean("compact_density", enabled).apply()
+    }
+
+    fun setViewMode(mode: String) {
+        _viewMode.value = mode
+        prefs.edit().putString("view_mode", mode).apply()
+    }
+
+    fun clearAppCache() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                getApplication<Application>().cacheDir.deleteRecursively()
+            }
+        }
+    }
+
     fun loadDirectory(path: String) {
         viewModelScope.launch {
+            val showHidden = _showHiddenFiles.value
+            val pinFolders = _foldersFirst.value
+
             val items = withContext(Dispatchers.IO) {
                 File(path).listFiles()
+                    ?.filter { file -> showHidden || !file.name.startsWith(".") }
                     ?.map { FileItem.fromFile(it) }
-                    ?.sortedWith(
-                        compareByDescending<FileItem> { it.isDirectory }
-                            .thenBy { it.name.lowercase() }
-                    ) ?: emptyList()
+                    ?.sortedWith { a, b ->
+                        if (pinFolders && a.isDirectory != b.isDirectory) {
+                            if (a.isDirectory) -1 else 1
+                        } else {
+                            a.name.lowercase().compareTo(b.name.lowercase())
+                        }
+                    } ?: emptyList()
             }
             _currentPath.value = path
             _fileList.value = items
@@ -127,11 +183,6 @@ class FileManagerViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Runs a long operation with a progress indicator. [block] gets a progress
-     * reporter (done, total) and a cancel check that throws when cancelled.
-     * It returns a success message, or throws to report failure.
-     */
     private fun runOperation(
         label: String,
         failMsg: String,
@@ -222,7 +273,6 @@ class FileManagerViewModel : ViewModel() {
     suspend fun stats(item: FileItem): FileOps.Stats =
         withContext(Dispatchers.IO) { FileOps.stats(File(item.path)) }
 
-    // Returns null if the file is too big (>1 MB) or looks binary
     suspend fun readText(item: FileItem): String? = withContext(Dispatchers.IO) {
         runCatching {
             val f = File(item.path)
