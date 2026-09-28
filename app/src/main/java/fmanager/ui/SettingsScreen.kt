@@ -85,15 +85,8 @@ fun SettingsScreen(onClose: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            // --- Storage Information Section ---
-            Text("Storage Overview", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            StorageInfoSection(context)
-
-            Spacer(Modifier.height(24.dp))
-
-            // --- Theme Section ---
-            Text("Theme", style = MaterialTheme.typography.titleMedium)
+            // --- Theme & Appearance ---
+            Text("Theme & Customization", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(8.dp))
             val systemDark = isSystemInDarkTheme()
 
@@ -106,16 +99,17 @@ fun SettingsScreen(onClose: () -> Unit) {
                 }
             }
 
+            // RGB Options (Only when RGB Theme is selected)
             if (ThemeSettings.themeId == "rgb") {
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                     )
                 ) {
                     Column(Modifier.padding(16.dp)) {
-                        Text("RGB Theme Customization", style = MaterialTheme.typography.titleSmall)
+                        Text("RGB Screen Glow", style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(12.dp))
 
                         Row(
@@ -123,7 +117,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("RGB Outlines & Borders", style = MaterialTheme.typography.bodyMedium)
+                            Text("Screen Edge RGB Glow", style = MaterialTheme.typography.bodyMedium)
                             Switch(
                                 checked = ThemeSettings.rgbOutlineEnabled,
                                 onCheckedChange = { ThemeSettings.setRgbOutline(it) }
@@ -142,7 +136,11 @@ fun SettingsScreen(onClose: () -> Unit) {
                                 prefs.edit().putFloat("rgb_speed", it).apply()
                             },
                             valueRange = 3f..30f,
-                            steps = 26
+                            steps = 26,
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.primary,
+                                activeTrackColor = MaterialTheme.colorScheme.primary
+                            )
                         )
 
                         Spacer(Modifier.height(12.dp))
@@ -160,7 +158,10 @@ fun SettingsScreen(onClose: () -> Unit) {
                             ) {
                                 RadioButton(
                                     selected = ThemeSettings.rgbMode == mode,
-                                    onClick = { ThemeSettings.setRgbMode(mode) }
+                                    onClick = { ThemeSettings.setRgbMode(mode) },
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = MaterialTheme.colorScheme.primary
+                                    )
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(mode.label, style = MaterialTheme.typography.bodyMedium)
@@ -170,15 +171,37 @@ fun SettingsScreen(onClose: () -> Unit) {
                 }
             }
 
+            // Custom Colors (ONLY shown when Custom Theme is active)
+            if (ThemeSettings.themeId == "custom") {
+                Spacer(Modifier.height(16.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    )
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Custom Palette", style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.height(8.dp))
+                        ColorRow("Accent Color", ThemeSettings.customAccent, accentPalette) {
+                            ThemeSettings.updateCustom(accent = it)
+                        }
+                        ColorRow("Background Color", ThemeSettings.customBackground, backgroundPalette) {
+                            ThemeSettings.updateCustom(background = it)
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(24.dp))
 
-            // --- Display & View Options ---
-            Text("Display & Layout", style = MaterialTheme.typography.titleMedium)
+            // --- File & Display Settings ---
+            Text("Display & Operations", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(8.dp))
 
             SettingSwitchRow(
                 title = "Show Hidden Files",
-                subtitle = "Display files/folders starting with a dot (.)",
+                subtitle = "Display files starting with a dot (.)",
                 checked = showHiddenFiles,
                 onCheckedChange = {
                     showHiddenFiles = it
@@ -197,12 +220,22 @@ fun SettingsScreen(onClose: () -> Unit) {
             )
 
             SettingSwitchRow(
-                title = "Compact Item Spacing",
-                subtitle = "Fit more files on screen at once",
+                title = "Compact Spacing",
+                subtitle = "Reduce padding to fit more files on screen",
                 checked = isCompactDensity,
                 onCheckedChange = {
                     isCompactDensity = it
                     prefs.edit().putBoolean("compact_density", it).apply()
+                }
+            )
+
+            SettingSwitchRow(
+                title = "Confirm Before Delete",
+                subtitle = "Require confirmation before removing files",
+                checked = confirmDelete,
+                onCheckedChange = {
+                    confirmDelete = it
+                    prefs.edit().putBoolean("confirm_delete", it).apply()
                 }
             )
 
@@ -212,7 +245,10 @@ fun SettingsScreen(onClose: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Default View Mode", style = MaterialTheme.typography.bodyMedium)
+                Column(Modifier.weight(1f)) {
+                    Text("Default View Mode", style = MaterialTheme.typography.bodyLarge)
+                    Text("Choose default layout mode", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 SingleChoiceSegmentedButtonRow {
                     SegmentedButton(
                         selected = viewMode == "List",
@@ -233,23 +269,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
-
-            // --- File Operations ---
-            Text("File Operations", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-
-            SettingSwitchRow(
-                title = "Confirm Before Delete",
-                subtitle = "Ask for confirmation before removing files",
-                checked = confirmDelete,
-                onCheckedChange = {
-                    confirmDelete = it
-                    prefs.edit().putBoolean("confirm_delete", it).apply()
-                }
-            )
-
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(16.dp))
             OutlinedButton(
                 onClick = {
                     runCatching {
@@ -263,36 +283,27 @@ fun SettingsScreen(onClose: () -> Unit) {
             ) {
                 Icon(Icons.Default.DeleteSweep, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Clear Temporary App Cache")
+                Text("Clear App Cache")
             }
 
             Spacer(Modifier.height(24.dp))
 
-            // --- Custom Colors ---
-            Text("Custom Colors", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Changing any color switches to the Custom theme.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            ColorRow("Accent", ThemeSettings.customAccent, accentPalette) {
-                ThemeSettings.updateCustom(accent = it)
-            }
-            ColorRow("Background", ThemeSettings.customBackground, backgroundPalette) {
-                ThemeSettings.updateCustom(background = it)
-            }
+            // --- Storage Info ---
+            Text("Storage Overview", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            StorageInfoSection(context)
 
             Spacer(Modifier.height(24.dp))
 
-            // --- System & Device Information Section ---
-            Text("System & Device Information", style = MaterialTheme.typography.titleMedium)
+            // --- System Info ---
+            Text("System & Device Information", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(8.dp))
             SystemInfoCard(context)
 
             Spacer(Modifier.height(24.dp))
 
-            // --- App Updates ---
-            Text("Updates", style = MaterialTheme.typography.titleMedium)
+            // --- Updates ---
+            Text("Updates", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(4.dp))
             Text(
                 "Version ${Updater.currentVersion(context)}",
@@ -300,22 +311,31 @@ fun SettingsScreen(onClose: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(8.dp))
-            Button(enabled = !busy, onClick = {
-                scope.launch {
-                    busy = true
-                    val r = runCatching { Updater.check(context) }
-                    busy = false
-                    r.onSuccess { info ->
-                        if (info == null) {
-                            Toast.makeText(context, "You're up to date", Toast.LENGTH_SHORT).show()
-                        } else {
-                            update = info
+            Button(
+                enabled = !busy,
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        val r = runCatching { Updater.check(context) }
+                        busy = false
+                        r.onSuccess { info ->
+                            if (info == null) {
+                                Toast.makeText(context, "You're up to date", Toast.LENGTH_SHORT).show()
+                            } else {
+                                update = info
+                            }
+                        }.onFailure {
+                            Toast.makeText(context, "Update check failed", Toast.LENGTH_SHORT).show()
                         }
-                    }.onFailure {
-                        Toast.makeText(context, "Update check failed", Toast.LENGTH_SHORT).show()
                     }
-                }
-            }) { Text(if (busy) "Checking..." else "Check for updates") }
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Text(if (busy) "Checking..." else "Check for updates")
+            }
 
             Spacer(Modifier.height(32.dp))
         }
@@ -366,7 +386,6 @@ private fun StorageInfoSection(context: Context) {
         freeBytes = intFree
     )
 
-    // Check for Secondary/External SD Card
     val externalDirs = ContextCompat.getExternalFilesDirs(context, null)
     if (externalDirs.size > 1 && externalDirs[1] != null) {
         val sdCardFile = externalDirs[1]
@@ -399,7 +418,7 @@ private fun StorageCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
     ) {
         Row(
             Modifier.padding(16.dp),
@@ -449,15 +468,12 @@ private fun SystemInfoCard(context: Context) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             InfoRow(icon = Icons.Default.PhoneAndroid, label = "Device Model", value = "$manufacturer ${Build.MODEL}")
-            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
             InfoRow(icon = Icons.Default.Android, label = "Android Version", value = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
-            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
             InfoRow(icon = Icons.Default.DeveloperBoard, label = "RAM (Available / Total)", value = "$availRamGb GB / $totalRamGb GB")
-            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
             InfoRow(icon = Icons.Default.Terminal, label = "Kernel Version", value = kernelVersion)
         }
     }
@@ -504,7 +520,14 @@ private fun SettingSwitchRow(
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                checkedTrackColor = MaterialTheme.colorScheme.primary
+            )
+        )
     }
 }
 
@@ -519,12 +542,12 @@ private fun ThemeOption(spec: ThemeSpec, selected: Boolean, onClick: () -> Unit)
             .fillMaxWidth()
             .clip(shape)
             .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
+            .padding(vertical = 8.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             Modifier
-                .size(48.dp)
+                .size(44.dp)
                 .clip(shape)
                 .background(
                     if (isRgbOption) SolidColor(spec.background)
@@ -541,13 +564,13 @@ private fun ThemeOption(spec: ThemeSpec, selected: Boolean, onClick: () -> Unit)
         ) {
             Box(
                 Modifier
-                    .size(18.dp)
+                    .size(16.dp)
                     .clip(CircleShape)
                     .background(animatedRgbColor)
             )
         }
         Spacer(Modifier.width(16.dp))
-        Text(spec.title, modifier = Modifier.weight(1f))
+        Text(spec.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
         if (selected) {
             Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
         }
@@ -599,7 +622,13 @@ private fun ColorRow(
             },
             label = { Text("Hex (RRGGBB)") },
             prefix = { Text("#") },
-            singleLine = true
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                focusedLabelColor = MaterialTheme.colorScheme.primary,
+                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         )
     }
 }
