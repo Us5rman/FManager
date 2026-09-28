@@ -9,7 +9,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.FManager">
         <activity
-            android:name=".MainActivity"
+            android:name="fmanager.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
