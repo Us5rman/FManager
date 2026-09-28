@@ -38,11 +38,6 @@ private val backgroundPalette = listOf(
     0xFFFFFFFF, 0xFFF5F5F5, 0xFFFFF8E1, 0xFFE3F2FD, 0xFFFCE4EC,
     0xFF121212, 0xFF000000, 0xFF0E1F17, 0xFF1A1A2E, 0xFF2B1B17
 )
-private val surfacePalette = listOf(
-    0xFFFFFFFF, 0xFFF3EDF7, 0xFFFFF3E0, 0xFFE1F5FE, 0xFFF8BBD0,
-    0xFF1E1E1E, 0xFF0B0B0F, 0xFF16302A, 0xFF25254A, 0xFF3E2723
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onClose: () -> Unit) {
@@ -96,9 +91,6 @@ fun SettingsScreen(onClose: () -> Unit) {
             }
             ColorRow("Background", ThemeSettings.customBackground, backgroundPalette) {
                 ThemeSettings.updateCustom(background = it)
-            }
-            ColorRow("Surface (top bar, menus)", ThemeSettings.customSurface, surfacePalette) {
-                ThemeSettings.updateCustom(surface = it)
             }
 
             Spacer(Modifier.height(24.dp))
