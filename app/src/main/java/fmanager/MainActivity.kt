@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -26,6 +27,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import fmanager.ui.FileExplorerScreen
 import fmanager.ui.FileManagerViewModel
+import fmanager.ui.theme.FManagerTheme
+import fmanager.ui.theme.ThemeSettings
 
 class MainActivity : ComponentActivity() {
     private val viewModel: FileManagerViewModel by viewModels()
@@ -54,6 +57,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyBestRefreshRate()
+        ThemeSettings.init(this)
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -63,8 +67,12 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            FManagerTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color.Transparent,
+                    contentColor = MaterialTheme.colorScheme.onBackground
+                ) {
                     if (hasAccess) {
                         FileExplorerScreen(viewModel)
                     } else {
