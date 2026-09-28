@@ -3,10 +3,14 @@ package fmanager.ui
 import android.os.Environment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import fmanager.model.ArchiveOps
 import fmanager.model.FileItem
 import fmanager.model.FileOps
+import fmanager.model.OpProgress
 import fmanager.model.OpenKind
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -31,6 +35,10 @@ class FileManagerViewModel : ViewModel() {
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
     fun messageShown() { _message.value = null }
+
+    private val _progress = MutableStateFlow<OpProgress?>(null)
+    val progress: StateFlow<OpProgress?> = _progress
+    private var opJob: Job? = null
 
     private val _editing = MutableStateFlow<FileItem?>(null)
     val editing: StateFlow<FileItem?> = _editing
@@ -99,6 +107,90 @@ class FileManagerViewModel : ViewModel() {
             }
             _message.value = if (ok) "Renamed" else "Rename failed"
             refresh()
+        }
+    }
+
+    fun createFolder(name: String) {
+        val n = name.trim()
+        if (n.isEmpty() || n.contains('/')) {
+            _message.value = "Invalid name"
+            return
+        }
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                val dir = File(_currentPath.value, n)
+                !dir.exists() && dir.mkdirs()
+            }
+            _message.value = if (ok) "Folder created" else "Could not create folder"
+            refresh()
+        }
+    }
+
+    /**
+     * Runs a long operation with a progress indicator. [block] receives a callback
+     * to report progress (0f..1f, or negative for indeterminate) and returns success.
+     */
+    private fun runOperation(
+        label: String,
+        successMsg: String,
+        failMsg: String,
+        block: suspend ((Float) -> Unit) -> Boolean
+    ) {
+        if (opJob?.isActive == true) {
+            _message.value = "Another operation is running"
+            return
+        }
+        opJob = viewModelScope.launch {
+            _progress.value = OpProgress(label, -1f)
+            try {
+                val ok = withContext(Dispatchers.IO) {
+                    block { f -> _progress.value = OpProgress(label, f) }
+                }
+                _message.value = if (ok) successMsg else failMsg
+            } catch (e: CancellationException) {
+                _message.value = "Cancelled"
+                throw e
+            } catch (e: Exception) {
+                _message.value = failMsg
+            } finally {
+                _progress.value = null
+                refresh()
+            }
+        }
+    }
+
+    fun cancelOperation() { opJob?.cancel() }
+
+    fun compress(item: FileItem, format: ArchiveOps.Format, level: ArchiveOps.Level, name: String) {
+        val n = name.trim()
+        if (n.isEmpty() || n.contains('/')) {
+            _message.value = "Invalid name"
+            return
+        }
+        runOperation("Compressing", "Archive created", "Compression failed") { report ->
+            ArchiveOps.compress(
+                source = File(item.path),
+                destDir = File(item.path).parentFile ?: File(_currentPath.value),
+                name = n,
+                format = format,
+                level = level,
+                onProgress = report
+            )
+        }
+    }
+
+    fun extract(item: FileItem, toFolder: Boolean) {
+        runOperation("Extracting", "Extracted", "Extraction failed") { report ->
+            val archive = File(item.path)
+            val parent = archive.parentFile ?: File(_currentPath.value)
+            val dest = if (toFolder) File(parent, archive.name.substringBeforeLast('.', archive.name)) else parent
+            ArchiveOps.extract(archive = archive, destDir = dest, onProgress = report)
+        }
+    }
+
+    fun repair(item: FileItem) {
+        runOperation("Repairing", "Repair finished", "Repair failed") { report ->
+            ArchiveOps.repair(archive = File(item.path), onProgress = report)
         }
     }
 
