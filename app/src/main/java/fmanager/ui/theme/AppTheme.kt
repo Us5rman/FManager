@@ -219,12 +219,7 @@ private fun buildScheme(s: ThemeSpec): ColorScheme {
         surfaceVariant = tone(0.08f, 0.15f),
         onSurfaceVariant = onSurface.copy(alpha = 0.7f),
         outline = onSurface.copy(alpha = 0.4f),
-        outlineVariant = onSurface.copy(alpha = 0.2f),
-        surfaceContainerLowest = tone(0.0f, 0.10f),
-        surfaceContainerLow = tone(0.02f, 0.20f),
-        surfaceContainer = tone(0.04f, 0.30f),
-        surfaceContainerHigh = tone(0.08f, 0.40f),
-        surfaceContainerHighest = tone(0.12f, 0.50f)
+        outlineVariant = onSurface.copy(alpha = 0.2f)
     )
 }
 
