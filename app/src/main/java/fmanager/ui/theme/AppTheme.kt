@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 
+// surface = base color for menus, sheets and dialogs (the top bar always uses the background)
 data class ThemeSpec(
     val id: String,
     val title: String,
@@ -33,33 +34,33 @@ data class ThemeSpec(
 
 val presetThemes = listOf(
     ThemeSpec(
-        "glass", "Liquid Glass", false,
+        "glass", "Frost", false,
         primary = Color(0xFF5B6CFF),
         background = Color(0xFFDDE7FF),
         surface = Color(0x99FFFFFF),
         gradient = listOf(Color(0xFF9FD8FF), Color(0xFFD7B8FF), Color(0xFFFFC9E3))
     ),
     ThemeSpec(
-        "midnight", "Midnight", true,
+        "midnight", "Void", true,
         primary = Color(0xFF00E5FF),
         background = Color(0xFF000000),
         surface = Color(0xFF0B0B0F)
     ),
     ThemeSpec(
-        "sunset", "Sunset", true,
+        "sunset", "Ember", true,
         primary = Color(0xFFFFB74D),
         background = Color(0xFF2B1055),
         surface = Color(0x66000000),
         gradient = listOf(Color(0xFF2B1055), Color(0xFF8E2DE2), Color(0xFFFF6E7F))
     ),
     ThemeSpec(
-        "forest", "Forest", true,
+        "forest", "Moss", true,
         primary = Color(0xFF7BE0A4),
         background = Color(0xFF0E1F17),
         surface = Color(0xFF16302A)
     ),
     ThemeSpec(
-        "ocean", "Ocean", false,
+        "ocean", "Tide", false,
         primary = Color(0xFF0277BD),
         background = Color(0xFFEAF6FB),
         surface = Color(0xFFFFFFFF)
@@ -71,11 +72,9 @@ object ThemeSettings {
 
     var themeId by mutableStateOf("default")
         private set
-    var customAccent by mutableStateOf(0xFF6750A4.toInt())
+    var customAccent by mutableStateOf(0xFF2563EB.toInt())
         private set
-    var customBackground by mutableStateOf(0xFFFFFBFE.toInt())
-        private set
-    var customSurface by mutableStateOf(0xFFF3EDF7.toInt())
+    var customBackground by mutableStateOf(0xFFF8F9FB.toInt())
         private set
 
     fun init(context: Context) {
@@ -85,7 +84,6 @@ object ThemeSettings {
         themeId = p.getString("theme", "default") ?: "default"
         customAccent = p.getInt("accent", customAccent)
         customBackground = p.getInt("background", customBackground)
-        customSurface = p.getInt("surface", customSurface)
     }
 
     fun setTheme(id: String) {
@@ -93,35 +91,41 @@ object ThemeSettings {
         prefs?.edit()?.putString("theme", id)?.apply()
     }
 
-    fun updateCustom(accent: Int? = null, background: Int? = null, surface: Int? = null) {
+    fun updateCustom(accent: Int? = null, background: Int? = null) {
         accent?.let { customAccent = it }
         background?.let { customBackground = it }
-        surface?.let { customSurface = it }
         themeId = "custom"
         prefs?.edit()
             ?.putString("theme", "custom")
             ?.putInt("accent", customAccent)
             ?.putInt("background", customBackground)
-            ?.putInt("surface", customSurface)
             ?.apply()
     }
 
     fun defaultSpec(systemDark: Boolean) =
         if (systemDark) ThemeSpec(
-            "default", "Default", true,
-            Color(0xFFD0BCFF), Color(0xFF1C1B1F), Color(0xFF1C1B1F)
+            "default", "Auto", true,
+            primary = Color(0xFF7AA2FF),
+            background = Color(0xFF111318),
+            surface = Color(0xFF1B1E25)
         ) else ThemeSpec(
-            "default", "Default", false,
-            Color(0xFF6750A4), Color(0xFFFFFBFE), Color(0xFFFFFBFE)
+            "default", "Auto", false,
+            primary = Color(0xFF2563EB),
+            background = Color(0xFFF8F9FB),
+            surface = Color(0xFFEEF0F4)
         )
 
-    fun customSpec() = ThemeSpec(
-        "custom", "Custom",
-        dark = Color(customBackground).luminance() < 0.5f,
-        primary = Color(customAccent),
-        background = Color(customBackground),
-        surface = Color(customSurface)
-    )
+    fun customSpec(): ThemeSpec {
+        val bg = Color(customBackground)
+        val dark = bg.luminance() < 0.5f
+        val on = if (dark) Color(0xFFECE6F0) else Color(0xFF1C1B1F)
+        return ThemeSpec(
+            "custom", "Yours", dark,
+            primary = Color(customAccent),
+            background = bg,
+            surface = lerp(bg, on, 0.08f)
+        )
+    }
 
     fun specFor(systemDark: Boolean): ThemeSpec = when (themeId) {
         "default" -> defaultSpec(systemDark)
@@ -134,8 +138,10 @@ private fun buildScheme(s: ThemeSpec): ColorScheme {
     val glass = s.gradient != null
     val onSurface = if (s.dark) Color(0xFFECE6F0) else Color(0xFF1C1B1F)
     val onPrimary = if (s.primary.luminance() > 0.5f) Color.Black else Color.White
-    val solidSurface = s.surface.copy(alpha = 1f)
-    val primaryContainer = lerp(solidSurface, s.primary, 0.3f)
+    val solidBase = s.surface.copy(alpha = 1f)
+    val primaryContainer = lerp(solidBase, s.primary, 0.3f)
+    // The top bar (and anything using "surface") always matches the background
+    val page = if (glass) Color.Transparent else s.background
 
     fun tone(solid: Float, glassAlpha: Float): Color =
         if (glass) s.surface.copy(alpha = (s.surface.alpha + glassAlpha).coerceAtMost(0.96f))
@@ -151,10 +157,11 @@ private fun buildScheme(s: ThemeSpec): ColorScheme {
         onSecondary = onPrimary,
         secondaryContainer = primaryContainer,
         onSecondaryContainer = onSurface,
-        background = if (glass) Color.Transparent else s.background,
+        background = page,
         onBackground = onSurface,
-        surface = s.surface,
+        surface = page,
         onSurface = onSurface,
+        surfaceTint = Color.Transparent,
         surfaceVariant = tone(0.08f, 0.15f),
         onSurfaceVariant = onSurface.copy(alpha = 0.7f),
         outline = onSurface.copy(alpha = 0.4f),
