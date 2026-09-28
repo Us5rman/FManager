@@ -1,8 +1,0 @@
--dontwarn org.apache.commons.**
--dontwarn org.tukaani.**
--dontwarn com.github.luben.**
--dontwarn org.brotli.**
--dontwarn org.objectweb.**
--dontwarn org.slf4j.**
--dontwarn javax.annotation.**
--dontwarn com.github.junrar.**
