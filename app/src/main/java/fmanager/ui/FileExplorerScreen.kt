@@ -78,9 +78,8 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
             else -> MediaPlayerScreen(v.item, v.kind == OpenKind.VIDEO) { viewModel.closeViewer() }
         }
         settingsOpen -> SettingsScreen(
-            viewModel = viewModel,
             onClose = { settingsOpen = false }
-        )
+        )    
         informationOpen -> InformationScreen(
             onClose = { informationOpen = false }
         )
