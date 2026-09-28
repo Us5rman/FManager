@@ -159,6 +159,7 @@ object ThemeSettings {
     var customBackground by mutableStateOf(0xFFE6F8EE.toInt())
         private set
 
+    // Restricted setters prevent auto-generated Kotlin getter/setter JVM signature clashes
     var rgbMode by mutableStateOf(RgbMode.SPECTRUM)
         private set
     var rgbOutlineEnabled by mutableStateOf(false)
