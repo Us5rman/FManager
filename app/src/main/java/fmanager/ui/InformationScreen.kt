@@ -26,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import java.io.File
-import java.io.RandomAccessFile
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -295,7 +294,10 @@ private fun HardwareInfoCard(context: Context) {
     val availRamGb = "%.1f".format(memoryInfo.availMem / (1024f * 1024f * 1024f))
     val usedRamGb = "%.1f".format((memoryInfo.totalMem - memoryInfo.availMem) / (1024f * 1024f * 1024f))
     
-    val zRamInfo = remember { readProcMemInfo("SwapTotal") to readProcMemInfo("SwapFree") }
+    val swapTotal = remember { readProcMemInfo("SwapTotal") }
+    val swapFree = remember { readProcMemInfo("SwapFree") }
+    val zRamInfo = "$swapFree free / $swapTotal total"
+
     val cpuName = remember { readCpuModel() }
     val gpuRenderer = remember { GLES20.glGetString(GLES20.GL_RENDERER) ?: "Adreno / Mali Graphics" }
     val gpuVendor = remember { GLES20.glGetString(GLES20.GL_VENDOR) ?: "System Default" }
