@@ -159,7 +159,7 @@ object ThemeSettings {
     var customBackground by mutableStateOf(0xFFE6F8EE.toInt())
         private set
 
-    // 'private set' prevents Kotlin from generating automatic setters that clash with custom functions below
+    // Restricted 'private set' prevents Kotlin from generating automatic setters that clash with custom functions
     var rgbMode by mutableStateOf(RgbMode.SPECTRUM)
         private set
     var rgbOutlineEnabled by mutableStateOf(false)
