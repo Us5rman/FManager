@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import fmanager.ui.theme.ThemeSettings
 import fmanager.ui.theme.ThemeSpec
 import fmanager.ui.theme.presetThemes
+import fmanager.ui.theme.rememberRgbColor
 import kotlinx.coroutines.launch
 
 private val accentPalette = listOf(
@@ -73,7 +74,6 @@ fun SettingsScreen(onClose: () -> Unit) {
             Spacer(Modifier.height(8.dp))
             val systemDark = isSystemInDarkTheme()
 
-            // Map standard presets to ThemeSpecs for current system light/dark mode
             val presetSpecs = presetThemes.map { it.spec(systemDark) }
             val options = presetSpecs + ThemeSettings.customSpec()
 
@@ -160,6 +160,9 @@ fun SettingsScreen(onClose: () -> Unit) {
 @Composable
 private fun ThemeOption(spec: ThemeSpec, selected: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
+    val isRgbOption = spec.id == "rgb"
+    val animatedRgbColor = if (isRgbOption) rememberRgbColor() else spec.primary
+
     Row(
         Modifier
             .fillMaxWidth()
@@ -173,13 +176,24 @@ private fun ThemeOption(spec: ThemeSpec, selected: Boolean, onClick: () -> Unit)
                 .size(48.dp)
                 .clip(shape)
                 .background(
-                    spec.gradient?.let { Brush.linearGradient(it) }
-                        ?: SolidColor(spec.background)
+                    if (isRgbOption) SolidColor(spec.background)
+                    else spec.gradient?.let { Brush.linearGradient(it) } ?: SolidColor(spec.background)
                 )
-                .border(1.dp, MaterialTheme.colorScheme.outline, shape),
+                .border(
+                    width = 1.dp,
+                    brush = if (isRgbOption) Brush.sweepGradient(
+                        listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red)
+                    ) else SolidColor(MaterialTheme.colorScheme.outline),
+                    shape = shape
+                ),
             contentAlignment = Alignment.Center
         ) {
-            Box(Modifier.size(18.dp).clip(CircleShape).background(spec.primary))
+            Box(
+                Modifier
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(animatedRgbColor)
+            )
         }
         Spacer(Modifier.width(16.dp))
         Text(spec.title, modifier = Modifier.weight(1f))
