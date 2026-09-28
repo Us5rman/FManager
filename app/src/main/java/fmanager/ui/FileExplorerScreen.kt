@@ -34,7 +34,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.background
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -47,7 +46,6 @@ import fmanager.model.ArchiveOps
 import fmanager.model.FileItem
 import fmanager.model.FileOps
 import fmanager.model.FileTypes
-import fmanager.model.OpProgress
 import fmanager.model.OpenKind
 import java.text.DateFormat
 import java.util.Date
