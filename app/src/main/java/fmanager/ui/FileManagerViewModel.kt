@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import fmanager.model.FileItem
 import fmanager.model.FileOps
+import fmanager.model.OpenKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +36,11 @@ class FileManagerViewModel : ViewModel() {
     val editing: StateFlow<FileItem?> = _editing
     fun openEditor(item: FileItem) { _editing.value = item }
     fun closeEditor() { _editing.value = null; refresh() }
+
+    private val _viewer = MutableStateFlow<ViewerTarget?>(null)
+    val viewer: StateFlow<ViewerTarget?> = _viewer
+    fun openViewer(item: FileItem, kind: OpenKind) { _viewer.value = ViewerTarget(item, kind) }
+    fun closeViewer() { _viewer.value = null }
 
     fun loadDirectory(path: String) {
         viewModelScope.launch {
@@ -99,6 +105,7 @@ class FileManagerViewModel : ViewModel() {
     suspend fun stats(item: FileItem): FileOps.Stats =
         withContext(Dispatchers.IO) { FileOps.stats(File(item.path)) }
 
+    // Returns null if the file is too big (>1 MB) or looks binary
     suspend fun readText(item: FileItem): String? = withContext(Dispatchers.IO) {
         runCatching {
             val f = File(item.path)
