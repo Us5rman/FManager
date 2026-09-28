@@ -1,6 +1,8 @@
 package fmanager.ui
 
+import android.app.ActivityManager
 import android.content.Context
+import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.widget.Toast
@@ -16,9 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import fmanager.ui.theme.RgbMode
 import fmanager.ui.theme.ThemeSettings
 import fmanager.ui.theme.ThemeSpec
@@ -56,7 +57,6 @@ fun SettingsScreen(onClose: () -> Unit) {
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
     var busy by remember { mutableStateOf(false) }
 
-    // Persistent/Local Settings State
     val prefs = remember { context.getSharedPreferences("fmanager_settings", Context.MODE_PRIVATE) }
     var showHiddenFiles by remember { mutableStateOf(prefs.getBoolean("show_hidden", false)) }
     var foldersFirst by remember { mutableStateOf(prefs.getBoolean("folders_first", true)) }
@@ -85,10 +85,12 @@ fun SettingsScreen(onClose: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            // Storage Quick Overview Card
-            StorageOverviewCard()
+            // --- Storage Information Section ---
+            Text("Storage Overview", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            StorageInfoSection(context)
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(24.dp))
 
             // --- Theme Section ---
             Text("Theme", style = MaterialTheme.typography.titleMedium)
@@ -104,7 +106,6 @@ fun SettingsScreen(onClose: () -> Unit) {
                 }
             }
 
-            // RGB Specific Configuration Card
             if (ThemeSettings.themeId == "rgb") {
                 Spacer(Modifier.height(16.dp))
                 Card(
@@ -235,7 +236,7 @@ fun SettingsScreen(onClose: () -> Unit) {
             Spacer(Modifier.height(24.dp))
 
             // --- File Operations ---
-            Text("File Operations & Storage", style = MaterialTheme.typography.titleMedium)
+            Text("File Operations", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
 
             SettingSwitchRow(
@@ -280,6 +281,13 @@ fun SettingsScreen(onClose: () -> Unit) {
             ColorRow("Background", ThemeSettings.customBackground, backgroundPalette) {
                 ThemeSettings.updateCustom(background = it)
             }
+
+            Spacer(Modifier.height(24.dp))
+
+            // --- System & Device Information Section ---
+            Text("System & Device Information", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            SystemInfoCard(context)
 
             Spacer(Modifier.height(24.dp))
 
@@ -345,42 +353,134 @@ fun SettingsScreen(onClose: () -> Unit) {
 }
 
 @Composable
-private fun StorageOverviewCard() {
-    val stat = remember {
-        val path = Environment.getExternalStorageDirectory().path
-        StatFs(path)
-    }
-    val totalBytes = remember { stat.blockCountLong * stat.blockSizeLong }
-    val freeBytes = remember { stat.availableBlocksLong * stat.blockSizeLong }
-    val usedBytes = totalBytes - freeBytes
+private fun StorageInfoSection(context: Context) {
+    val internalPath = Environment.getExternalStorageDirectory().path
+    val internalStat = remember { StatFs(internalPath) }
+    val intTotal = internalStat.blockCountLong * internalStat.blockSizeLong
+    val intFree = internalStat.availableBlocksLong * internalStat.blockSizeLong
 
+    StorageCard(
+        title = "Internal Storage",
+        icon = Icons.Default.SdCard,
+        totalBytes = intTotal,
+        freeBytes = intFree
+    )
+
+    // Check for Secondary/External SD Card
+    val externalDirs = ContextCompat.getExternalFilesDirs(context, null)
+    if (externalDirs.size > 1 && externalDirs[1] != null) {
+        val sdCardFile = externalDirs[1]
+        val sdStat = remember { StatFs(sdCardFile.path) }
+        val sdTotal = sdStat.blockCountLong * sdStat.blockSizeLong
+        val sdFree = sdStat.availableBlocksLong * sdStat.blockSizeLong
+
+        Spacer(Modifier.height(8.dp))
+        StorageCard(
+            title = "SD Card",
+            icon = Icons.Default.Memory,
+            totalBytes = sdTotal,
+            freeBytes = sdFree
+        )
+    }
+}
+
+@Composable
+private fun StorageCard(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    totalBytes: Long,
+    freeBytes: Long
+) {
+    val usedBytes = totalBytes - freeBytes
     val usedGb = "%.1f".format(usedBytes / (1024f * 1024f * 1024f))
+    val freeGb = "%.1f".format(freeBytes / (1024f * 1024f * 1024f))
     val totalGb = "%.1f".format(totalBytes / (1024f * 1024f * 1024f))
     val progress = if (totalBytes > 0) usedBytes.toFloat() / totalBytes.toFloat() else 0f
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+    ) {
+        Row(
+            Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(32.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(title, style = MaterialTheme.typography.titleSmall)
+                    Text("$usedGb GB / $totalGb GB", style = MaterialTheme.typography.bodySmall)
+                }
+                Spacer(Modifier.height(6.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp)),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                )
+                Spacer(Modifier.height(4.dp))
+                Text("$freeGb GB free", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SystemInfoCard(context: Context) {
+    val activityManager = remember { context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager }
+    val memoryInfo = remember { ActivityManager.MemoryInfo().also { activityManager.getMemoryInfo(it) } }
+
+    val totalRamGb = "%.1f".format(memoryInfo.totalMem / (1024f * 1024f * 1024f))
+    val availRamGb = "%.1f".format(memoryInfo.availMem / (1024f * 1024f * 1024f))
+    val kernelVersion = remember { System.getProperty("os.version") ?: "Unknown" }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
     ) {
         Column(Modifier.padding(16.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("Internal Storage", style = MaterialTheme.typography.titleSmall)
-                Text("$usedGb GB / $totalGb GB", style = MaterialTheme.typography.bodySmall)
-            }
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp)),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-            )
+            InfoRow(icon = Icons.Default.PhoneAndroid, label = "Device Model", value = "${Build.MANUFACTURER.capitalize()} ${Build.MODEL}")
+            Divider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+            InfoRow(icon = Icons.Default.Android, label = "Android Version", value = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            Divider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+            InfoRow(icon = Icons.Default.DeveloperBoard, label = "RAM (Available / Total)", value = "$availRamGb GB / $totalRamGb GB")
+            Divider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+            InfoRow(icon = Icons.Default.Terminal, label = "Kernel Version", value = kernelVersion)
         }
+    }
+}
+
+@Composable
+private fun InfoRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
