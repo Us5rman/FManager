@@ -74,7 +74,7 @@ fun MediaPlayerScreen(item: FileItem, isVideo: Boolean, onClose: () -> Unit) {
     val view = LocalView.current
     BackHandler(onBack = onClose)
 
-    val player = remember(item.path) {
+    val exo = remember(item.path) {
         ExoPlayer.Builder(
             context,
             DefaultRenderersFactory(context).setEnableDecoderFallback(true)
@@ -96,7 +96,7 @@ fun MediaPlayerScreen(item: FileItem, isVideo: Boolean, onClose: () -> Unit) {
     var hint by remember { mutableStateOf<String?>(null) }
 
     // Load file plus any same-name subtitle files next to it (.srt .vtt .ass .ssa)
-    LaunchedEffect(player) {
+    LaunchedEffect(exo) {
         val f = File(item.path)
         val subs = listOf("srt", "vtt", "ass", "ssa")
             .mapNotNull { ext -> File(f.parentFile, f.nameWithoutExtension + "." + ext).takeIf { it.exists() } }
@@ -113,26 +113,26 @@ fun MediaPlayerScreen(item: FileItem, isVideo: Boolean, onClose: () -> Unit) {
                     .setSelectionFlags(if (i == 0) C.SELECTION_FLAG_DEFAULT else 0)
                     .build()
             }
-        player.setMediaItem(
+        exo.setMediaItem(
             MediaItem.Builder()
                 .setUri(Uri.fromFile(f))
                 .setSubtitleConfigurations(subs)
                 .build()
         )
-        player.prepare()
-        player.playWhenReady = true
+        exo.prepare()
+        exo.playWhenReady = true
     }
 
-    DisposableEffect(player) {
+    DisposableEffect(exo) {
         val l = object : Player.Listener {
             override fun onIsPlayingChanged(p: Boolean) { isPlaying = p }
             override fun onTracksChanged(t: Tracks) { tracks = t }
             override fun onPlayerError(e: PlaybackException) { error = e.errorCodeName }
         }
-        player.addListener(l)
+        exo.addListener(l)
         onDispose {
-            player.removeListener(l)
-            player.release()
+            exo.removeListener(l)
+            exo.release()
         }
     }
 
@@ -142,18 +142,18 @@ fun MediaPlayerScreen(item: FileItem, isVideo: Boolean, onClose: () -> Unit) {
         onDispose { view.keepScreenOn = false }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, player) {
+    DisposableEffect(lifecycleOwner, exo) {
         val obs = LifecycleEventObserver { _, ev ->
-            if (ev == Lifecycle.Event.ON_PAUSE) player.pause()
+            if (ev == Lifecycle.Event.ON_PAUSE) exo.pause()
         }
         lifecycleOwner.lifecycle.addObserver(obs)
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
-    LaunchedEffect(player) {
+    LaunchedEffect(exo) {
         while (true) {
-            if (!dragging) position = player.currentPosition
-            duration = player.duration.coerceAtLeast(0L)
+            if (!dragging) position = exo.currentPosition
+            duration = exo.duration.coerceAtLeast(0L)
             delay(250)
         }
     }
@@ -168,8 +168,8 @@ fun MediaPlayerScreen(item: FileItem, isVideo: Boolean, onClose: () -> Unit) {
     }
 
     fun seekBy(delta: Long) {
-        val max = if (player.duration > 0) player.duration else Long.MAX_VALUE
-        player.seekTo((player.currentPosition + delta).coerceIn(0L, max))
+        val max = if (exo.duration > 0) exo.duration else Long.MAX_VALUE
+        exo.seekTo((exo.currentPosition + delta).coerceIn(0L, max))
         hint = if (delta < 0) "-10s" else "+10s"
     }
 
@@ -179,7 +179,7 @@ fun MediaPlayerScreen(item: FileItem, isVideo: Boolean, onClose: () -> Unit) {
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         useController = false
-                        this.player = player
+                        setPlayer(exo)
                     }
                 },
                 update = {
@@ -257,7 +257,7 @@ fun MediaPlayerScreen(item: FileItem, isVideo: Boolean, onClose: () -> Unit) {
                             value = if (dragging) seekPos else position.toFloat(),
                             onValueChange = { dragging = true; seekPos = it },
                             onValueChangeFinished = {
-                                player.seekTo(seekPos.toLong())
+                                exo.seekTo(seekPos.toLong())
                                 position = seekPos.toLong()
                                 dragging = false
                             },
@@ -278,7 +278,7 @@ fun MediaPlayerScreen(item: FileItem, isVideo: Boolean, onClose: () -> Unit) {
                             Icon(Icons.Default.Replay10, "Back 10 seconds", tint = Color.White)
                         }
                         IconButton(onClick = {
-                            if (isPlaying) player.pause() else player.play()
+                            if (isPlaying) exo.pause() else exo.play()
                         }) {
                             Icon(
                                 if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -312,7 +312,7 @@ fun MediaPlayerScreen(item: FileItem, isVideo: Boolean, onClose: () -> Unit) {
                     listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f).forEach { s ->
                         TextButton(onClick = {
                             speed = s
-                            player.setPlaybackSpeed(s)
+                            exo.setPlaybackSpeed(s)
                             speedDialog = false
                         }) { Text(if (s == speed) "${s}x  (current)" else "${s}x") }
                     }
@@ -326,7 +326,7 @@ fun MediaPlayerScreen(item: FileItem, isVideo: Boolean, onClose: () -> Unit) {
     if (tracksDialog) {
         val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
         val text = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
-        val textOff = player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+        val textOff = exo.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
         AlertDialog(
             onDismissRequest = { tracksDialog = false },
             title = { Text("Audio and subtitles") },
@@ -340,7 +340,7 @@ fun MediaPlayerScreen(item: FileItem, isVideo: Boolean, onClose: () -> Unit) {
                             if (!g.isTrackSupported(i)) continue
                             val label = trackLabel(g.getTrackFormat(i), n++)
                             TextButton(onClick = {
-                                player.trackSelectionParameters = player.trackSelectionParameters
+                                exo.trackSelectionParameters = exo.trackSelectionParameters
                                     .buildUpon()
                                     .setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i))
                                     .build()
@@ -350,7 +350,7 @@ fun MediaPlayerScreen(item: FileItem, isVideo: Boolean, onClose: () -> Unit) {
                     Spacer(Modifier.height(12.dp))
                     Text("Subtitles", style = MaterialTheme.typography.titleSmall)
                     TextButton(onClick = {
-                        player.trackSelectionParameters = player.trackSelectionParameters
+                        exo.trackSelectionParameters = exo.trackSelectionParameters
                             .buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
                         tracksDialog = false
                     }) { Text(if (textOff) "✓ Off" else "Off") }
@@ -360,7 +360,7 @@ fun MediaPlayerScreen(item: FileItem, isVideo: Boolean, onClose: () -> Unit) {
                             if (!g.isTrackSupported(i)) continue
                             val label = trackLabel(g.getTrackFormat(i), m++)
                             TextButton(onClick = {
-                                player.trackSelectionParameters = player.trackSelectionParameters
+                                exo.trackSelectionParameters = exo.trackSelectionParameters
                                     .buildUpon()
                                     .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                                     .setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i))
