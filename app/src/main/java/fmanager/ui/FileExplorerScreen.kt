@@ -12,6 +12,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -45,6 +46,7 @@ import fmanager.model.ArchiveOps
 import fmanager.model.FileItem
 import fmanager.model.FileOps
 import fmanager.model.FileTypes
+import fmanager.model.OpProgress
 import fmanager.model.OpenKind
 import java.text.DateFormat
 import java.util.Date
