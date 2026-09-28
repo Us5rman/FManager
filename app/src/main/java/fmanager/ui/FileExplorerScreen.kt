@@ -41,8 +41,17 @@ fun formatSize(b: Long): String {
 @Composable
 fun FileExplorerScreen(viewModel: FileManagerViewModel) {
     val editing by viewModel.editing.collectAsState()
+    val viewer by viewModel.viewer.collectAsState()
     val e = editing
-    if (e != null) TextEditorScreen(e, viewModel) else BrowserScreen(viewModel)
+    val v = viewer
+    when {
+        e != null -> TextEditorScreen(e, viewModel)
+        v != null -> when (v.kind) {
+            OpenKind.IMAGE -> ImageViewerScreen(v.item) { viewModel.closeViewer() }
+            else -> MediaPlayerScreen(v.item, v.kind == OpenKind.VIDEO) { viewModel.closeViewer() }
+        }
+        else -> BrowserScreen(viewModel)
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -154,10 +163,6 @@ private fun BrowserScreen(viewModel: FileManagerViewModel) {
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
             if (!t.isDirectory) {
-                SheetAction(FileTypes.kindOf(t).title) {
-                    actionTarget = null
-                    openFile(context, viewModel, t, FileTypes.kindOf(t))
-                }
                 SheetAction("Open as...") { actionTarget = null; openAsTarget = t }
             }
             SheetAction("Rename") { actionTarget = null; renameTarget = t }
@@ -169,22 +174,22 @@ private fun BrowserScreen(viewModel: FileManagerViewModel) {
     }
 
     openAsTarget?.let { t ->
+        val recommended = FileTypes.kindOf(t)
         AlertDialog(
             onDismissRequest = { openAsTarget = null },
             title = { Text("Open as") },
             text = {
                 Column {
                     OpenKind.values().forEach { kind ->
+                        val label = kind.title
+                            .replace("Open as ", "")
+                            .replace("Open / edit as ", "")
+                            .replaceFirstChar { it.uppercase() }
                         TextButton(onClick = {
                             openAsTarget = null
                             openFile(context, viewModel, t, kind)
                         }) {
-                            Text(
-                                kind.title
-                                    .replace("Open as ", "")
-                                    .replace("Open / edit as ", "")
-                                    .replaceFirstChar { it.uppercase() }
-                            )
+                            Text(if (kind == recommended) "$label (recommended)" else label)
                         }
                     }
                 }
