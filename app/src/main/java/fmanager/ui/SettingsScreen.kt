@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import fmanager.ui.theme.RgbMode
 import fmanager.ui.theme.ThemeSettings
 import fmanager.ui.theme.ThemeSpec
 import fmanager.ui.theme.presetThemes
@@ -80,6 +81,55 @@ fun SettingsScreen(onClose: () -> Unit) {
             options.forEach { spec ->
                 ThemeOption(spec, spec.id == ThemeSettings.themeId) {
                     ThemeSettings.setTheme(spec.id)
+                }
+            }
+
+            if (ThemeSettings.themeId == "rgb") {
+                Spacer(Modifier.height(16.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("RGB Options", style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.height(8.dp))
+
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("RGB Outlines & Borders", style = MaterialTheme.typography.bodyMedium)
+                            Switch(
+                                checked = ThemeSettings.rgbOutlineEnabled,
+                                onCheckedChange = { ThemeSettings.setRgbOutline(it) }
+                            )
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+                        Text("Color Change Mode", style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(8.dp))
+
+                        RgbMode.values().forEach { mode ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { ThemeSettings.setRgbMode(mode) }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = ThemeSettings.rgbMode == mode,
+                                    onClick = { ThemeSettings.setRgbMode(mode) }
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(mode.label, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
                 }
             }
 
