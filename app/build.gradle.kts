@@ -3,6 +3,8 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+
 android {
     namespace = "com.fmanager.app"
     compileSdk = 34
@@ -11,12 +13,24 @@ android {
         applicationId = "com.fmanager.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = runNumber
+        versionName = "1.0.$runNumber"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
+        }
+    }
+
+    signingConfigs {
+        create("release") {
+            val ks = System.getenv("KEYSTORE_PATH")
+            if (ks != null) {
+                storeFile = file(ks)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
         }
     }
 
@@ -28,7 +42,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (System.getenv("KEYSTORE_PATH") != null)
+                signingConfigs.getByName("release")
+            else
+                signingConfigs.getByName("debug")
         }
     }
     compileOptions {
