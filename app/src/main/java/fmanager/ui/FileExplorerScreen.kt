@@ -24,7 +24,7 @@ import fmanager.model.FileItem
 import fmanager.model.FileOps
 import fmanager.model.OpenKind
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun FileExplorerScreen(viewModel: FileManagerViewModel) {
     val context = LocalContext.current
@@ -335,10 +335,14 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                         )
                     },
                     confirmButton = {
-                        TextButton(onClick = {
-                            viewModel.rename(item, text)
-                            renameItem = null
-                        }) { Text("OK") }
+                        TextButton(
+                            onClick = {
+                                if (text.isNotBlank()) {
+                                    viewModel.rename(item, text.trim())
+                                }
+                                renameItem = null
+                            }
+                        ) { Text("OK") }
                     },
                     dismissButton = {
                         TextButton(onClick = { renameItem = null }) { Text("Cancel") }
@@ -361,10 +365,14 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                         )
                     },
                     confirmButton = {
-                        TextButton(onClick = {
-                            viewModel.createFolder(folderName)
-                            showCreateFolderDialog = false
-                        }) { Text("Create") }
+                        TextButton(
+                            onClick = {
+                                if (folderName.isNotBlank()) {
+                                    viewModel.createFolder(folderName.trim())
+                                }
+                                showCreateFolderDialog = false
+                            }
+                        ) { Text("Create") }
                     },
                     dismissButton = {
                         TextButton(onClick = { showCreateFolderDialog = false }) { Text("Cancel") }
@@ -387,8 +395,7 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                             Text("Name: ${item.name}")
                             Text("Path: ${item.path}")
                             stats?.let { s ->
-                                Text("Size: ${s.formattedSize}")
-                                Text("Contains: ${s.fileCount} files, ${s.dirCount} folders")
+                                Text("Details: ${s.toString()}")
                             } ?: Text("Calculating size...")
                         }
                     },
@@ -413,15 +420,19 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                         )
                     },
                     confirmButton = {
-                        TextButton(onClick = {
-                            viewModel.compress(
-                                item = item,
-                                format = ArchiveOps.Format.ZIP,
-                                level = ArchiveOps.Level.NORMAL,
-                                name = archiveName
-                            )
-                            compressItem = null
-                        }) { Text("Compress") }
+                        TextButton(
+                            onClick = {
+                                if (archiveName.isNotBlank()) {
+                                    viewModel.compress(
+                                        item = item,
+                                        format = ArchiveOps.Format.ZIP,
+                                        level = ArchiveOps.Level.NORMAL,
+                                        name = archiveName.trim()
+                                    )
+                                }
+                                compressItem = null
+                            }
+                        ) { Text("Compress") }
                     },
                     dismissButton = {
                         TextButton(onClick = { compressItem = null }) { Text("Cancel") }
