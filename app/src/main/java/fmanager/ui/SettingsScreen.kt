@@ -36,7 +36,7 @@ import fmanager.ui.theme.ThemeSpec
 import fmanager.ui.theme.presetThemes
 import fmanager.ui.theme.rememberRgbColor
 import kotlinx.coroutines.launch
-import java.io.File
+import java.util.Locale
 
 private val accentPalette = listOf(
     0xFF6750A4, 0xFF1E88E5, 0xFF00ACC1, 0xFF43A047, 0xFFFDD835,
@@ -149,7 +149,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                         Text("Color Transition Mode", style = MaterialTheme.typography.bodySmall)
                         Spacer(Modifier.height(8.dp))
 
-                        RgbMode.values().forEach { mode ->
+                        RgbMode.entries.forEach { mode ->
                             Row(
                                 Modifier
                                     .fillMaxWidth()
@@ -445,18 +445,19 @@ private fun SystemInfoCard(context: Context) {
     val totalRamGb = "%.1f".format(memoryInfo.totalMem / (1024f * 1024f * 1024f))
     val availRamGb = "%.1f".format(memoryInfo.availMem / (1024f * 1024f * 1024f))
     val kernelVersion = remember { System.getProperty("os.version") ?: "Unknown" }
+    val manufacturer = remember { Build.MANUFACTURER.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() } }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
     ) {
         Column(Modifier.padding(16.dp)) {
-            InfoRow(icon = Icons.Default.PhoneAndroid, label = "Device Model", value = "${Build.MANUFACTURER.capitalize()} ${Build.MODEL}")
-            Divider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+            InfoRow(icon = Icons.Default.PhoneAndroid, label = "Device Model", value = "$manufacturer ${Build.MODEL}")
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
             InfoRow(icon = Icons.Default.Android, label = "Android Version", value = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
-            Divider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
             InfoRow(icon = Icons.Default.DeveloperBoard, label = "RAM (Available / Total)", value = "$availRamGb GB / $totalRamGb GB")
-            Divider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
             InfoRow(icon = Icons.Default.Terminal, label = "Kernel Version", value = kernelVersion)
         }
     }
