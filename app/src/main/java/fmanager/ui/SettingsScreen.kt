@@ -1,5 +1,8 @@
 package fmanager.ui
 
+import android.content.Context
+import android.os.Environment
+import android.os.StatFs
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -15,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +35,7 @@ import fmanager.ui.theme.ThemeSpec
 import fmanager.ui.theme.presetThemes
 import fmanager.ui.theme.rememberRgbColor
 import kotlinx.coroutines.launch
+import java.io.File
 
 private val accentPalette = listOf(
     0xFF6750A4, 0xFF1E88E5, 0xFF00ACC1, 0xFF43A047, 0xFFFDD835,
@@ -50,6 +55,15 @@ fun SettingsScreen(onClose: () -> Unit) {
 
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
     var busy by remember { mutableStateOf(false) }
+
+    // Persistent/Local Settings State
+    val prefs = remember { context.getSharedPreferences("fmanager_settings", Context.MODE_PRIVATE) }
+    var showHiddenFiles by remember { mutableStateOf(prefs.getBoolean("show_hidden", false)) }
+    var foldersFirst by remember { mutableStateOf(prefs.getBoolean("folders_first", true)) }
+    var confirmDelete by remember { mutableStateOf(prefs.getBoolean("confirm_delete", true)) }
+    var viewMode by remember { mutableStateOf(prefs.getString("view_mode", "List") ?: "List") }
+    var isCompactDensity by remember { mutableStateOf(prefs.getBoolean("compact_density", false)) }
+    var rgbDurationSeconds by remember { mutableStateOf(prefs.getFloat("rgb_speed", 10f)) }
 
     Scaffold(
         topBar = {
@@ -71,6 +85,12 @@ fun SettingsScreen(onClose: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
+            // Storage Quick Overview Card
+            StorageOverviewCard()
+
+            Spacer(Modifier.height(20.dp))
+
+            // --- Theme Section ---
             Text("Theme", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             val systemDark = isSystemInDarkTheme()
@@ -84,6 +104,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                 }
             }
 
+            // RGB Specific Configuration Card
             if (ThemeSettings.themeId == "rgb") {
                 Spacer(Modifier.height(16.dp))
                 Card(
@@ -93,8 +114,8 @@ fun SettingsScreen(onClose: () -> Unit) {
                     )
                 ) {
                     Column(Modifier.padding(16.dp)) {
-                        Text("RGB Options", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(8.dp))
+                        Text("RGB Theme Customization", style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.height(12.dp))
 
                         Row(
                             Modifier.fillMaxWidth(),
@@ -109,7 +130,22 @@ fun SettingsScreen(onClose: () -> Unit) {
                         }
 
                         Spacer(Modifier.height(12.dp))
-                        Text("Color Change Mode", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "Animation Speed: ${rgbDurationSeconds.toInt()}s",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Slider(
+                            value = rgbDurationSeconds,
+                            onValueChange = {
+                                rgbDurationSeconds = it
+                                prefs.edit().putFloat("rgb_speed", it).apply()
+                            },
+                            valueRange = 3f..30f,
+                            steps = 26
+                        )
+
+                        Spacer(Modifier.height(12.dp))
+                        Text("Color Transition Mode", style = MaterialTheme.typography.bodySmall)
                         Spacer(Modifier.height(8.dp))
 
                         RgbMode.values().forEach { mode ->
@@ -118,7 +154,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(8.dp))
                                     .clickable { ThemeSettings.setRgbMode(mode) }
-                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                    .padding(vertical = 6.dp, horizontal = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 RadioButton(
@@ -134,7 +170,105 @@ fun SettingsScreen(onClose: () -> Unit) {
             }
 
             Spacer(Modifier.height(24.dp))
-            Text("Custom colors", style = MaterialTheme.typography.titleMedium)
+
+            // --- Display & View Options ---
+            Text("Display & Layout", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+
+            SettingSwitchRow(
+                title = "Show Hidden Files",
+                subtitle = "Display files/folders starting with a dot (.)",
+                checked = showHiddenFiles,
+                onCheckedChange = {
+                    showHiddenFiles = it
+                    prefs.edit().putBoolean("show_hidden", it).apply()
+                }
+            )
+
+            SettingSwitchRow(
+                title = "Folders First",
+                subtitle = "Keep folders pinned at top of file list",
+                checked = foldersFirst,
+                onCheckedChange = {
+                    foldersFirst = it
+                    prefs.edit().putBoolean("folders_first", it).apply()
+                }
+            )
+
+            SettingSwitchRow(
+                title = "Compact Item Spacing",
+                subtitle = "Fit more files on screen at once",
+                checked = isCompactDensity,
+                onCheckedChange = {
+                    isCompactDensity = it
+                    prefs.edit().putBoolean("compact_density", it).apply()
+                }
+            )
+
+            Spacer(Modifier.height(12.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Default View Mode", style = MaterialTheme.typography.bodyMedium)
+                SingleChoiceSegmentedButtonRow {
+                    SegmentedButton(
+                        selected = viewMode == "List",
+                        onClick = {
+                            viewMode = "List"
+                            prefs.edit().putString("view_mode", "List").apply()
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                    ) { Text("List") }
+                    SegmentedButton(
+                        selected = viewMode == "Grid",
+                        onClick = {
+                            viewMode = "Grid"
+                            prefs.edit().putString("view_mode", "Grid").apply()
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                    ) { Text("Grid") }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            // --- File Operations ---
+            Text("File Operations & Storage", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+
+            SettingSwitchRow(
+                title = "Confirm Before Delete",
+                subtitle = "Ask for confirmation before removing files",
+                checked = confirmDelete,
+                onCheckedChange = {
+                    confirmDelete = it
+                    prefs.edit().putBoolean("confirm_delete", it).apply()
+                }
+            )
+
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    runCatching {
+                        context.cacheDir.deleteRecursively()
+                        Toast.makeText(context, "Cache cleared successfully", Toast.LENGTH_SHORT).show()
+                    }.onFailure {
+                        Toast.makeText(context, "Failed to clear cache", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.DeleteSweep, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Clear Temporary App Cache")
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            // --- Custom Colors ---
+            Text("Custom Colors", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Changing any color switches to the Custom theme.",
                 style = MaterialTheme.typography.bodySmall,
@@ -148,6 +282,8 @@ fun SettingsScreen(onClose: () -> Unit) {
             }
 
             Spacer(Modifier.height(24.dp))
+
+            // --- App Updates ---
             Text("Updates", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
@@ -172,6 +308,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                     }
                 }
             }) { Text(if (busy) "Checking..." else "Check for updates") }
+
             Spacer(Modifier.height(32.dp))
         }
     }
@@ -204,6 +341,69 @@ fun SettingsScreen(onClose: () -> Unit) {
                 TextButton(enabled = !busy, onClick = { update = null }) { Text("Later") }
             }
         )
+    }
+}
+
+@Composable
+private fun StorageOverviewCard() {
+    val stat = remember {
+        val path = Environment.getExternalStorageDirectory().path
+        StatFs(path)
+    }
+    val totalBytes = remember { stat.blockCountLong * stat.blockSizeLong }
+    val freeBytes = remember { stat.availableBlocksLong * stat.blockSizeLong }
+    val usedBytes = totalBytes - freeBytes
+
+    val usedGb = "%.1f".format(usedBytes / (1024f * 1024f * 1024f))
+    val totalGb = "%.1f".format(totalBytes / (1024f * 1024f * 1024f))
+    val progress = if (totalBytes > 0) usedBytes.toFloat() / totalBytes.toFloat() else 0f
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Internal Storage", style = MaterialTheme.typography.titleSmall)
+                Text("$usedGb GB / $totalGb GB", style = MaterialTheme.typography.bodySmall)
+            }
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingSwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
