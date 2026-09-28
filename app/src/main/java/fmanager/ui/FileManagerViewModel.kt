@@ -11,11 +11,13 @@ import fmanager.model.OpenKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.coroutines.coroutineContext
 
 enum class ClipMode { COPY, MOVE }
 data class Clip(val path: String, val mode: ClipMode)
@@ -127,14 +129,14 @@ class FileManagerViewModel : ViewModel() {
     }
 
     /**
-     * Runs a long operation with a progress indicator. [block] receives a callback
-     * to report progress (0f..1f, or negative for indeterminate) and returns success.
+     * Runs a long operation with a progress indicator. [block] gets a progress
+     * reporter (done, total) and a cancel check that throws when cancelled.
+     * It returns a success message, or throws to report failure.
      */
     private fun runOperation(
         label: String,
-        successMsg: String,
         failMsg: String,
-        block: suspend ((Float) -> Unit) -> Boolean
+        block: suspend (report: (Long, Long) -> Unit, check: () -> Unit) -> String
     ) {
         if (opJob?.isActive == true) {
             _message.value = "Another operation is running"
@@ -143,15 +145,22 @@ class FileManagerViewModel : ViewModel() {
         opJob = viewModelScope.launch {
             _progress.value = OpProgress(label, -1f)
             try {
-                val ok = withContext(Dispatchers.IO) {
-                    block { f -> _progress.value = OpProgress(label, f) }
+                val msg = withContext(Dispatchers.IO) {
+                    val ctx = coroutineContext
+                    block(
+                        { done, total ->
+                            val f = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else -1f
+                            _progress.value = OpProgress(label, f)
+                        },
+                        { ctx.ensureActive() }
+                    )
                 }
-                _message.value = if (ok) successMsg else failMsg
+                _message.value = msg
             } catch (e: CancellationException) {
                 _message.value = "Cancelled"
                 throw e
             } catch (e: Exception) {
-                _message.value = failMsg
+                _message.value = e.message?.takeIf { it.isNotBlank() } ?: failMsg
             } finally {
                 _progress.value = null
                 refresh()
@@ -167,30 +176,47 @@ class FileManagerViewModel : ViewModel() {
             _message.value = "Invalid name"
             return
         }
-        runOperation("Compressing", "Archive created", "Compression failed") { report ->
-            ArchiveOps.compress(
-                source = File(item.path),
-                destDir = File(item.path).parentFile ?: File(_currentPath.value),
-                name = n,
-                format = format,
-                level = level,
-                onProgress = report
-            )
+        runOperation("Compressing", "Compression failed") { report, check ->
+            val src = File(item.path)
+            val dir = src.parentFile ?: File(_currentPath.value)
+            val out = FileOps.uniqueTarget(dir, "$n.${ArchiveOps.extensionFor(format, level)}")
+            try {
+                ArchiveOps.compress(listOf(src), out, format, level, report, check)
+            } catch (e: Throwable) {
+                out.delete()
+                throw e
+            }
+            "Created ${out.name}"
         }
     }
 
     fun extract(item: FileItem, toFolder: Boolean) {
-        runOperation("Extracting", "Extracted", "Extraction failed") { report ->
+        runOperation("Extracting", "Extraction failed") { report, check ->
             val archive = File(item.path)
             val parent = archive.parentFile ?: File(_currentPath.value)
-            val dest = if (toFolder) File(parent, archive.name.substringBeforeLast('.', archive.name)) else parent
-            ArchiveOps.extract(archive = archive, destDir = dest, onProgress = report)
+            val dest = if (toFolder) {
+                FileOps.uniqueTarget(parent, ArchiveOps.baseName(archive.name))
+            } else {
+                parent
+            }
+            val count = ArchiveOps.extract(archive, dest, report, check)
+            "Extracted $count file${if (count == 1) "" else "s"}"
         }
     }
 
     fun repair(item: FileItem) {
-        runOperation("Repairing", "Repair finished", "Repair failed") { report ->
-            ArchiveOps.repair(archive = File(item.path), onProgress = report)
+        runOperation("Repairing", "Repair failed") { report, check ->
+            val archive = File(item.path)
+            val dir = archive.parentFile ?: File(_currentPath.value)
+            val out = FileOps.uniqueTarget(dir, "${ArchiveOps.baseName(archive.name)}_repaired.zip")
+            val r = try {
+                ArchiveOps.repair(archive, out, report, check)
+            } catch (e: Throwable) {
+                out.delete()
+                throw e
+            }
+            if (r.complete) "Repaired: ${r.recovered} files saved to ${out.name}"
+            else "Partly recovered: ${r.recovered} files saved to ${out.name}"
         }
     }
 
