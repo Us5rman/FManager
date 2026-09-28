@@ -2,6 +2,7 @@ package fmanager.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,10 +16,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import fmanager.model.FileItem
 import fmanager.model.FileOps
+import fmanager.model.FileTypes
+import fmanager.model.OpenKind
 import java.text.DateFormat
 import java.util.Date
 
@@ -31,16 +35,36 @@ fun formatSize(b: Long): String {
     return "%.1f %s".format(v, units[i])
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FileExplorerScreen(viewModel: FileManagerViewModel) {
+    val editing by viewModel.editing.collectAsState()
+    val e = editing
+    if (e != null) TextEditorScreen(e, viewModel) else BrowserScreen(viewModel)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BrowserScreen(viewModel: FileManagerViewModel) {
+    val context = LocalContext.current
     val currentPath by viewModel.currentPath.collectAsState()
     val fileList by viewModel.fileList.collectAsState()
     val clip by viewModel.clip.collectAsState()
     val message by viewModel.message.collectAsState()
     val snackbar = remember { SnackbarHostState() }
+
+    var actionTarget by remember { mutableStateOf<FileItem?>(null) }
+    var openAsTarget by remember { mutableStateOf<FileItem?>(null) }
     var renameTarget by remember { mutableStateOf<FileItem?>(null) }
     var propsTarget by remember { mutableStateOf<FileItem?>(null) }
+
+    // Stable callbacks: rows don't recompose while scrolling
+    val onItemClick = remember<(FileItem) -> Unit> {
+        { item ->
+            if (item.isDirectory) viewModel.loadDirectory(item.path)
+            else openFile(context, viewModel, item, FileTypes.kindOf(item))
+        }
+    }
+    val onItemLongClick = remember<(FileItem) -> Unit> { { item -> actionTarget = item } }
 
     BackHandler(enabled = currentPath != viewModel.rootPath) {
         viewModel.navigateUp()
@@ -84,21 +108,56 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                 key = { it.path },
                 contentType = { if (it.isDirectory) 0 else 1 }
             ) { item ->
-                FileRowItem(
-                    item = item,
-                    onClick = {
-                        if (item.isDirectory) viewModel.loadDirectory(item.path)
-                    },
-                    onRename = { renameTarget = item },
-                    onCopy = { viewModel.setClip(item, ClipMode.COPY) },
-                    onMove = { viewModel.setClip(item, ClipMode.MOVE) },
-                    onProps = { propsTarget = item }
-                )
+                FileRowItem(item, onItemClick, onItemLongClick)
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 )
             }
         }
+    }
+
+    // One shared bottom sheet for the long-press menu
+    actionTarget?.let { t ->
+        ModalBottomSheet(onDismissRequest = { actionTarget = null }) {
+            Text(
+                t.name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+            if (!t.isDirectory) {
+                SheetAction(FileTypes.kindOf(t).title) {
+                    actionTarget = null
+                    openFile(context, viewModel, t, FileTypes.kindOf(t))
+                }
+                SheetAction("Open as...") { actionTarget = null; openAsTarget = t }
+            }
+            SheetAction("Rename") { actionTarget = null; renameTarget = t }
+            SheetAction("Copy") { actionTarget = null; viewModel.setClip(t, ClipMode.COPY) }
+            SheetAction("Move") { actionTarget = null; viewModel.setClip(t, ClipMode.MOVE) }
+            SheetAction("Properties") { actionTarget = null; propsTarget = t }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+
+    openAsTarget?.let { t ->
+        AlertDialog(
+            onDismissRequest = { openAsTarget = null },
+            title = { Text("Open as") },
+            text = {
+                Column {
+                    OpenKind.values().forEach { kind ->
+                        TextButton(onClick = {
+                            openAsTarget = null
+                            openFile(context, viewModel, t, kind)
+                        }) { Text(kind.title.replace("Open as ", "").replace("Open / edit as ", "").replaceFirstChar { it.uppercase() }) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { openAsTarget = null }) { Text("Cancel") } }
+        )
     }
 
     renameTarget?.let { t ->
@@ -107,11 +166,7 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
             onDismissRequest = { renameTarget = null },
             title = { Text("Rename") },
             text = {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    singleLine = true
-                )
+                OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true)
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -119,9 +174,7 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                     renameTarget = null
                 }) { Text("OK") }
             },
-            dismissButton = {
-                TextButton(onClick = { renameTarget = null }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } }
         )
     }
 
@@ -142,67 +195,65 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                     Text("Modified: ${DateFormat.getDateTimeInstance().format(Date(t.lastModified))}")
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { propsTarget = null }) { Text("Close") }
-            }
+            confirmButton = { TextButton(onClick = { propsTarget = null }) { Text("Close") } }
         )
     }
+}
+
+@Composable
+private fun SheetAction(label: String, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(label) },
+        modifier = Modifier.clickable(onClick = onClick)
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FileRowItem(
     item: FileItem,
-    onClick: () -> Unit,
-    onRename: () -> Unit,
-    onCopy: () -> Unit,
-    onMove: () -> Unit,
-    onProps: () -> Unit
+    onClick: (FileItem) -> Unit,
+    onLongClick: (FileItem) -> Unit
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
-
-    Box {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val (icon, tint) = when {
-                item.isDirectory -> Icons.Default.Folder to MaterialTheme.colorScheme.primary
-                item.isArchive -> Icons.Default.FolderZip to Color(0xFFFF9800)
-                else -> Icons.Default.InsertDriveFile to MaterialTheme.colorScheme.onSurfaceVariant
-            }
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = tint,
-                modifier = Modifier.size(36.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { onClick(item) },
+                onLongClick = { onLongClick(item) }
             )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (!item.isDirectory) {
-                    Text(
-                        text = formatSize(item.sizeBytes),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val primary = MaterialTheme.colorScheme.primary
+        val muted = MaterialTheme.colorScheme.onSurfaceVariant
+        val (icon, tint) = when {
+            item.isDirectory -> Icons.Default.Folder to primary
+            item.isArchive -> Icons.Default.FolderZip to Color(0xFFFF9800)
+            else -> Icons.Default.InsertDriveFile to muted
         }
-
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            DropdownMenuItem(text = { Text("Rename") }, onClick = { menuOpen = false; onRename() })
-            DropdownMenuItem(text = { Text("Copy") }, onClick = { menuOpen = false; onCopy() })
-            DropdownMenuItem(text = { Text("Move") }, onClick = { menuOpen = false; onMove() })
-            DropdownMenuItem(text = { Text("Properties") }, onClick = { menuOpen = false; onProps() })
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(36.dp)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = item.name,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!item.isDirectory) {
+                val sizeText = remember(item.sizeBytes) { formatSize(item.sizeBytes) }
+                Text(
+                    text = sizeText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = muted
+                )
+            }
         }
     }
 }
