@@ -159,7 +159,7 @@ object ThemeSettings {
     var customBackground by mutableStateOf(0xFFE6F8EE.toInt())
         private set
 
-    // Restricted setters prevent auto-generated Kotlin getter/setter JVM signature clashes
+    // 'private set' prevents Kotlin from generating automatic setters that clash with custom functions below
     var rgbMode by mutableStateOf(RgbMode.SPECTRUM)
         private set
     var rgbOutlineEnabled by mutableStateOf(false)
@@ -227,11 +227,10 @@ object ThemeSettings {
     }
 }
 
-// Creative RGB animation helper with custom modes and slowed-down timing
 @Composable
 fun rememberRgbColor(
     mode: RgbMode = ThemeSettings.rgbMode,
-    durationMillis: Int = 10000 // 10 seconds for smooth slow change
+    durationMillis: Int = 10000
 ): Color {
     val transition = rememberInfiniteTransition(label = "rgb_anim")
     val progress by transition.animateFloat(
