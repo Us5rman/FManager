@@ -23,7 +23,6 @@ import fmanager.model.ArchiveOps
 import fmanager.model.FileItem
 import fmanager.model.FileOps
 import fmanager.model.OpenKind
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -250,54 +249,66 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                         Column {
                             ListItem(
                                 headlineContent = { Text("Copy") },
-                                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
-                                modifier = Modifier.combinedClickable {
-                                    viewModel.setClip(item, ClipMode.COPY)
-                                    selectedItemForMenu = null
-                                }
+                                leadingContent = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                                modifier = Modifier.combinedClickable(
+                                    onClick = {
+                                        viewModel.setClip(item, ClipMode.COPY)
+                                        selectedItemForMenu = null
+                                    }
+                                )
                             )
                             ListItem(
                                 headlineContent = { Text("Cut / Move") },
-                                leadingIcon = { Icon(Icons.Default.ContentCut, contentDescription = null) },
-                                modifier = Modifier.combinedClickable {
-                                    viewModel.setClip(item, ClipMode.MOVE)
-                                    selectedItemForMenu = null
-                                }
+                                leadingContent = { Icon(Icons.Default.ContentCut, contentDescription = null) },
+                                modifier = Modifier.combinedClickable(
+                                    onClick = {
+                                        viewModel.setClip(item, ClipMode.MOVE)
+                                        selectedItemForMenu = null
+                                    }
+                                )
                             )
                             ListItem(
                                 headlineContent = { Text("Rename") },
-                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                                modifier = Modifier.combinedClickable {
-                                    renameItem = item
-                                    selectedItemForMenu = null
-                                }
+                                leadingContent = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                modifier = Modifier.combinedClickable(
+                                    onClick = {
+                                        renameItem = item
+                                        selectedItemForMenu = null
+                                    }
+                                )
                             )
                             if (item.name.endsWith(".zip", ignoreCase = true) || item.name.endsWith(".tar", ignoreCase = true)) {
                                 ListItem(
                                     headlineContent = { Text("Extract") },
-                                    leadingIcon = { Icon(Icons.Default.Unarchive, contentDescription = null) },
-                                    modifier = Modifier.combinedClickable {
-                                        viewModel.extract(item, toFolder = true)
-                                        selectedItemForMenu = null
-                                    }
+                                    leadingContent = { Icon(Icons.Default.Unarchive, contentDescription = null) },
+                                    modifier = Modifier.combinedClickable(
+                                        onClick = {
+                                            viewModel.extract(item, toFolder = true)
+                                            selectedItemForMenu = null
+                                        }
+                                    )
                                 )
                             } else {
                                 ListItem(
                                     headlineContent = { Text("Compress") },
-                                    leadingIcon = { Icon(Icons.Default.Archive, contentDescription = null) },
-                                    modifier = Modifier.combinedClickable {
-                                        compressItem = item
-                                        selectedItemForMenu = null
-                                    }
+                                    leadingContent = { Icon(Icons.Default.Archive, contentDescription = null) },
+                                    modifier = Modifier.combinedClickable(
+                                        onClick = {
+                                            compressItem = item
+                                            selectedItemForMenu = null
+                                        }
+                                    )
                                 )
                             }
                             ListItem(
                                 headlineContent = { Text("Properties") },
-                                leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
-                                modifier = Modifier.combinedClickable {
-                                    propertiesItem = item
-                                    selectedItemForMenu = null
-                                }
+                                leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
+                                modifier = Modifier.combinedClickable(
+                                    onClick = {
+                                        propertiesItem = item
+                                        selectedItemForMenu = null
+                                    }
+                                )
                             )
                         }
                     },
