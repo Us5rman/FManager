@@ -31,6 +31,11 @@ class FileManagerViewModel : ViewModel() {
     val message: StateFlow<String?> = _message
     fun messageShown() { _message.value = null }
 
+    private val _editing = MutableStateFlow<FileItem?>(null)
+    val editing: StateFlow<FileItem?> = _editing
+    fun openEditor(item: FileItem) { _editing.value = item }
+    fun closeEditor() { _editing.value = null; refresh() }
+
     fun loadDirectory(path: String) {
         viewModelScope.launch {
             val items = withContext(Dispatchers.IO) {
@@ -93,4 +98,17 @@ class FileManagerViewModel : ViewModel() {
 
     suspend fun stats(item: FileItem): FileOps.Stats =
         withContext(Dispatchers.IO) { FileOps.stats(File(item.path)) }
+
+    suspend fun readText(item: FileItem): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val f = File(item.path)
+            if (f.length() > 1_048_576L) return@runCatching null
+            val bytes = f.readBytes()
+            if (bytes.any { it == 0.toByte() }) null else String(bytes, Charsets.UTF_8)
+        }.getOrNull()
+    }
+
+    suspend fun writeText(item: FileItem, text: String): Boolean = withContext(Dispatchers.IO) {
+        runCatching { File(item.path).writeText(text); true }.getOrDefault(false)
+    }
 }
