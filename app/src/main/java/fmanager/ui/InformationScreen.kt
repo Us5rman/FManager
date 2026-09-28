@@ -114,7 +114,7 @@ fun InformationScreen(onClose: () -> Unit) {
                             Spacer(Modifier.height(4.dp))
                             TextButton(
                                 onClick = {
-                                    uriHandler.openUri("https://github.com/") // Replace with your repository URL
+                                    uriHandler.openUri("https://github.com/Us5rman/FManager")
                                 },
                                 contentPadding = PaddingValues(0.dp)
                             ) {
