@@ -38,6 +38,7 @@ private val backgroundPalette = listOf(
     0xFFFFFFFF, 0xFFF5F5F5, 0xFFFFF8E1, 0xFFE3F2FD, 0xFFFCE4EC,
     0xFF121212, 0xFF000000, 0xFF0E1F17, 0xFF1A1A2E, 0xFF2B1B17
 )
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onClose: () -> Unit) {
@@ -71,8 +72,11 @@ fun SettingsScreen(onClose: () -> Unit) {
             Text("Theme", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             val systemDark = isSystemInDarkTheme()
-            val options = listOf(ThemeSettings.defaultSpec(systemDark)) +
-                presetThemes + ThemeSettings.customSpec()
+
+            // Map standard presets to ThemeSpecs for current system light/dark mode
+            val presetSpecs = presetThemes.map { it.spec(systemDark) }
+            val options = presetSpecs + ThemeSettings.customSpec()
+
             options.forEach { spec ->
                 ThemeOption(spec, spec.id == ThemeSettings.themeId) {
                     ThemeSettings.setTheme(spec.id)
