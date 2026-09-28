@@ -2,6 +2,12 @@ package fmanager.ui.theme
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
@@ -21,7 +27,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 
-// surface = base color for menus, sheets and dialogs (the top bar always uses the background)
 data class ThemeSpec(
     val id: String,
     val title: String,
@@ -32,7 +37,6 @@ data class ThemeSpec(
     val gradient: List<Color>? = null
 )
 
-// Every preset has a light and a dark look. The one used follows the phone's setting.
 data class ThemePreset(
     val id: String,
     val title: String,
@@ -43,7 +47,7 @@ data class ThemePreset(
 }
 
 val presetThemes = listOf(
-    // Fluorite: emerald-green, like the app icon. This is the default theme.
+    // Fluorite: default
     ThemePreset(
         "fluorite", "Fluorite",
         light = ThemeSpec(
@@ -61,20 +65,36 @@ val presetThemes = listOf(
             gradient = listOf(Color(0xFF041009), Color(0xFF0A2618), Color(0xFF104A31))
         )
     ),
+    // RGB Chroma: Pure Black / Pure White background with vibrant dynamic accent
+    ThemePreset(
+        "rgb", "RGB Chroma",
+        light = ThemeSpec(
+            "rgb", "RGB Chroma", false,
+            primary = Color(0xFFFF0055),
+            background = Color(0xFFFFFFFF), // Pure White
+            surface = Color(0xFFF2F2F7)    // Solid surface for menus/sheets
+        ),
+        dark = ThemeSpec(
+            "rgb", "RGB Chroma", true,
+            primary = Color(0xFF00FFCC),
+            background = Color(0xFF000000), // Pure Pitch Black
+            surface = Color(0xFF18181A)    // Solid dark surface for menus/sheets
+        )
+    ),
     ThemePreset(
         "glass", "Glass",
         light = ThemeSpec(
             "glass", "Glass", false,
             primary = Color(0xFF5B6CFF),
             background = Color(0xFFDDE7FF),
-            surface = Color(0x99FFFFFF),
+            surface = Color(0xFFEEF3FF),
             gradient = listOf(Color(0xFF9FD8FF), Color(0xFFD7B8FF), Color(0xFFFFC9E3))
         ),
         dark = ThemeSpec(
             "glass", "Glass", true,
             primary = Color(0xFF8C9BFF),
             background = Color(0xFF14172B),
-            surface = Color(0x66FFFFFF),
+            surface = Color(0xFF1E223D),
             gradient = listOf(Color(0xFF16233F), Color(0xFF2A1F4A), Color(0xFF3F1F3A))
         )
     ),
@@ -90,7 +110,7 @@ val presetThemes = listOf(
             "midnight", "Void", true,
             primary = Color(0xFF00E5FF),
             background = Color(0xFF000000),
-            surface = Color(0xFF0B0B0F)
+            surface = Color(0xFF121212)
         )
     ),
     ThemePreset(
@@ -99,14 +119,14 @@ val presetThemes = listOf(
             "sunset", "Ember", false,
             primary = Color(0xFFE65100),
             background = Color(0xFFFFEFE3),
-            surface = Color(0x99FFFFFF),
+            surface = Color(0xFFFFF2E8),
             gradient = listOf(Color(0xFFFFE0B2), Color(0xFFFFB199), Color(0xFFFF8FA3))
         ),
         dark = ThemeSpec(
             "sunset", "Ember", true,
             primary = Color(0xFFFFB74D),
             background = Color(0xFF2B1055),
-            surface = Color(0x66000000),
+            surface = Color(0xFF1E1035),
             gradient = listOf(Color(0xFF2B1055), Color(0xFF8E2DE2), Color(0xFFFF6E7F))
         )
     ),
@@ -129,7 +149,6 @@ val presetThemes = listOf(
 
 object ThemeSettings {
     const val DEFAULT_ID = "fluorite"
-
     private var prefs: SharedPreferences? = null
 
     var themeId by mutableStateOf(DEFAULT_ID)
@@ -144,7 +163,6 @@ object ThemeSettings {
             .getSharedPreferences("fmanager_theme", Context.MODE_PRIVATE)
         prefs = p
         val saved = p.getString("theme", DEFAULT_ID) ?: DEFAULT_ID
-        // "default" was the old name of the Auto theme, which is now Fluorite
         themeId = if (saved == "default" || saved == "forest") DEFAULT_ID else saved
         customAccent = p.getInt("accent", customAccent)
         customBackground = p.getInt("background", customBackground)
@@ -188,35 +206,49 @@ object ThemeSettings {
     }
 }
 
-private fun buildScheme(s: ThemeSpec): ColorScheme {
+// Helper composable to get animated HSV color for RGB mode
+@Composable
+fun rememberRgbColor(durationMillis: Int = 3500): Color {
+    val infiniteTransition = rememberInfiniteTransition(label = "rgb_loop")
+    val hue by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "hue"
+    )
+    return Color.hsv(hue, 0.85f, 1f)
+}
+
+private fun buildScheme(s: ThemeSpec, activePrimary: Color): ColorScheme {
     val glass = s.gradient != null
     val onSurface = if (s.dark) Color(0xFFECE6F0) else Color(0xFF1C1B1F)
-    val onPrimary = if (s.primary.luminance() > 0.5f) Color.Black else Color.White
-    val solidBase = s.surface.copy(alpha = 1f)
-    val primaryContainer = lerp(solidBase, s.primary, 0.3f)
-    // The top bar (and anything using "surface") always matches the background
+    val primaryColor = activePrimary
+    val onPrimary = if (primaryColor.luminance() > 0.5f) Color.Black else Color.White
+    
+    // Ensure bottom sheets, dialogs, and popups use solid surface color
+    val solidSurface = s.surface.copy(alpha = 1f)
+    val primaryContainer = lerp(solidSurface, primaryColor, 0.25f)
     val page = if (glass) Color.Transparent else s.background
-
-    fun tone(solid: Float, glassAlpha: Float): Color =
-        if (glass) s.surface.copy(alpha = (s.surface.alpha + glassAlpha).coerceAtMost(0.96f))
-        else lerp(s.surface, onSurface, solid)
 
     val base = if (s.dark) darkColorScheme() else lightColorScheme()
     return base.copy(
-        primary = s.primary,
+        primary = primaryColor,
         onPrimary = onPrimary,
         primaryContainer = primaryContainer,
         onPrimaryContainer = onSurface,
-        secondary = s.primary,
+        secondary = primaryColor,
         onSecondary = onPrimary,
         secondaryContainer = primaryContainer,
         onSecondaryContainer = onSurface,
         background = page,
         onBackground = onSurface,
-        surface = page,
+        surface = solidSurface, // FIXED: Non-transparent container surface
         onSurface = onSurface,
         surfaceTint = Color.Transparent,
-        surfaceVariant = tone(0.08f, 0.15f),
+        surfaceVariant = lerp(solidSurface, onSurface, 0.08f),
         onSurfaceVariant = onSurface.copy(alpha = 0.7f),
         outline = onSurface.copy(alpha = 0.4f),
         outlineVariant = onSurface.copy(alpha = 0.2f)
@@ -227,7 +259,11 @@ private fun buildScheme(s: ThemeSpec): ColorScheme {
 fun FManagerTheme(content: @Composable () -> Unit) {
     val systemDark = isSystemInDarkTheme()
     val spec = ThemeSettings.specFor(systemDark)
-    val scheme = remember(spec) { buildScheme(spec) }
+    val isRgb = ThemeSettings.themeId == "rgb"
+    val dynamicRgbColor = rememberRgbColor()
+
+    val currentPrimary = if (isRgb) dynamicRgbColor else spec.primary
+    val scheme = remember(spec, currentPrimary) { buildScheme(spec, currentPrimary) }
     val bg = spec.gradient
         ?.let { Modifier.background(Brush.linearGradient(it)) }
         ?: Modifier.background(spec.background)
