@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "noble" ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,7 +26,15 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      - name: Decode keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/fmanager.jks"
+
       - name: Build Release APK
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/fmanager.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: gradle assembleRelease --stacktrace
 
       - name: Upload Release APK
@@ -33,3 +44,13 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           retention-days: 7
           if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp app/build/outputs/apk/release/*.apk FManager.apk
+          gh release create "v1.0.${{ github.run_number }}" FManager.apk \
+            --title "FManager 1.0.${{ github.run_number }}" \
+            --notes "Automated build"
