@@ -23,9 +23,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderZip
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
@@ -36,8 +36,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -150,14 +148,13 @@ private fun ExplorerTopBar(
     progress: OpProgress?,
     onNavigate: (String) -> Unit,
     onProgressClick: () -> Unit,
-    onNewFolder: () -> Unit,
+    onInformation: () -> Unit,
     onRefresh: () -> Unit,
     onSettings: () -> Unit
 ) {
     val segments = remember(currentPath, rootPath) { buildSegments(currentPath, rootPath) }
     var menuOpen by remember { mutableStateOf(false) }
 
-    // Keep the last progress around so the chip can animate out
     val lastProgress = remember { arrayOfNulls<OpProgress>(1) }
     if (progress != null) lastProgress[0] = progress
     val shown = progress ?: lastProgress[0]
@@ -210,9 +207,9 @@ private fun ExplorerTopBar(
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
-                    text = { Text("New folder") },
-                    leadingIcon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
-                    onClick = { menuOpen = false; onNewFolder() }
+                    text = { Text("Information") },
+                    leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
+                    onClick = { menuOpen = false; onInformation() }
                 )
                 DropdownMenuItem(
                     text = { Text("Refresh") },
@@ -247,10 +244,9 @@ private fun BrowserScreen(viewModel: FileManagerViewModel, onOpenSettings: () ->
     var propsTarget by remember { mutableStateOf<FileItem?>(null) }
     var compressTarget by remember { mutableStateOf<FileItem?>(null) }
     var extractTarget by remember { mutableStateOf<FileItem?>(null) }
-    var newFolderDialog by remember { mutableStateOf(false) }
+    var showInfoDialog by remember { mutableStateOf(false) }
     var showProgress by remember { mutableStateOf(false) }
 
-    // Stable callbacks: rows don't recompose while scrolling
     val onItemClick = remember<(FileItem) -> Unit> {
         { item ->
             if (item.isDirectory) viewModel.loadDirectory(item.path)
@@ -278,7 +274,7 @@ private fun BrowserScreen(viewModel: FileManagerViewModel, onOpenSettings: () ->
                 progress = progress,
                 onNavigate = { viewModel.loadDirectory(it) },
                 onProgressClick = { showProgress = true },
-                onNewFolder = { newFolderDialog = true },
+                onInformation = { showInfoDialog = true },
                 onRefresh = { viewModel.refresh() },
                 onSettings = onOpenSettings
             )
@@ -307,7 +303,6 @@ private fun BrowserScreen(viewModel: FileManagerViewModel, onOpenSettings: () ->
         }
     }
 
-    // One shared bottom sheet for the long-press menu
     actionTarget?.let { t ->
         ModalBottomSheet(
             onDismissRequest = { actionTarget = null },
@@ -435,26 +430,12 @@ private fun BrowserScreen(viewModel: FileManagerViewModel, onOpenSettings: () ->
         )
     }
 
-    if (newFolderDialog) {
-        var folderName by remember { mutableStateOf("") }
+    if (showInfoDialog) {
         AlertDialog(
-            onDismissRequest = { newFolderDialog = false },
-            title = { Text("New folder") },
-            text = {
-                OutlinedTextField(
-                    value = folderName,
-                    onValueChange = { folderName = it },
-                    label = { Text("Folder name") },
-                    singleLine = true
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.createFolder(folderName)
-                    newFolderDialog = false
-                }) { Text("Create") }
-            },
-            dismissButton = { TextButton(onClick = { newFolderDialog = false }) { Text("Cancel") } }
+            onDismissRequest = { showInfoDialog = false },
+            title = { Text("Information") },
+            text = { Text("Current Path: $currentPath\nTotal Items: ${fileList.size}") },
+            confirmButton = { TextButton(onClick = { showInfoDialog = false }) { Text("OK") } }
         )
     }
 
@@ -535,7 +516,6 @@ fun FileRowItem(
     onClick: (FileItem) -> Unit,
     onLongClick: (FileItem) -> Unit
 ) {
-    val divider = MaterialTheme.colorScheme.outlineVariant
     val primary = MaterialTheme.colorScheme.primary
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val kind = remember(item.name, item.isDirectory) {
@@ -550,14 +530,6 @@ fun FileRowItem(
                 onClick = { onClick(item) },
                 onLongClick = { onLongClick(item) }
             )
-            .drawBehind {
-                drawLine(
-                    color = divider,
-                    start = Offset(0f, size.height),
-                    end = Offset(size.width, size.height),
-                    strokeWidth = 1.dp.toPx()
-                )
-            }
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
