@@ -35,6 +35,22 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { refreshAccess() }
 
+    private fun applyBestRefreshRate() {
+        val d = if (Build.VERSION.SDK_INT >= 30) display
+                else @Suppress("DEPRECATION") windowManager.defaultDisplay
+        d ?: return
+        val cur = d.mode
+        val best = d.supportedModes
+            .filter {
+                it.physicalWidth == cur.physicalWidth &&
+                it.physicalHeight == cur.physicalHeight
+            }
+            .maxByOrNull { it.refreshRate } ?: return
+        val lp = window.attributes
+        lp.preferredDisplayModeId = best.modeId
+        window.attributes = lp
+    }
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
