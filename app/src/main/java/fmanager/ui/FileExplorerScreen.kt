@@ -1,5 +1,6 @@
 package fmanager.ui
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -11,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +25,7 @@ import fmanager.model.FileItem
 import fmanager.model.FileOps
 import fmanager.model.FileTypes
 import fmanager.model.OpenKind
+import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
@@ -51,11 +54,14 @@ private fun BrowserScreen(viewModel: FileManagerViewModel) {
     val clip by viewModel.clip.collectAsState()
     val message by viewModel.message.collectAsState()
     val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     var actionTarget by remember { mutableStateOf<FileItem?>(null) }
     var openAsTarget by remember { mutableStateOf<FileItem?>(null) }
     var renameTarget by remember { mutableStateOf<FileItem?>(null) }
     var propsTarget by remember { mutableStateOf<FileItem?>(null) }
+    var update by remember { mutableStateOf<UpdateInfo?>(null) }
+    var busy by remember { mutableStateOf(false) }
 
     // Stable callbacks: rows don't recompose while scrolling
     val onItemClick = remember<(FileItem) -> Unit> {
@@ -86,6 +92,27 @@ private fun BrowserScreen(viewModel: FileManagerViewModel) {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                },
+                actions = {
+                    IconButton(onClick = {
+                        if (busy) return@IconButton
+                        scope.launch {
+                            busy = true
+                            val r = runCatching { Updater.check(context) }
+                            busy = false
+                            r.onSuccess { info ->
+                                if (info == null) {
+                                    Toast.makeText(context, "You're up to date", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    update = info
+                                }
+                            }.onFailure {
+                                Toast.makeText(context, "Update check failed", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }) {
+                        Icon(Icons.Default.SystemUpdate, contentDescription = "Check for updates")
+                    }
                 }
             )
         },
@@ -151,7 +178,14 @@ private fun BrowserScreen(viewModel: FileManagerViewModel) {
                         TextButton(onClick = {
                             openAsTarget = null
                             openFile(context, viewModel, t, kind)
-                        }) { Text(kind.title.replace("Open as ", "").replace("Open / edit as ", "").replaceFirstChar { it.uppercase() }) }
+                        }) {
+                            Text(
+                                kind.title
+                                    .replace("Open as ", "")
+                                    .replace("Open / edit as ", "")
+                                    .replaceFirstChar { it.uppercase() }
+                            )
+                        }
                     }
                 }
             },
@@ -196,6 +230,36 @@ private fun BrowserScreen(viewModel: FileManagerViewModel) {
                 }
             },
             confirmButton = { TextButton(onClick = { propsTarget = null }) { Text("Close") } }
+        )
+    }
+
+    update?.let { u ->
+        AlertDialog(
+            onDismissRequest = { if (!busy) update = null },
+            title = { Text("Update available") },
+            text = {
+                Text(
+                    if (busy) "Downloading..."
+                    else "Version ${u.version} is available. You have ${Updater.currentVersion(context)}."
+                )
+            },
+            confirmButton = {
+                TextButton(enabled = !busy, onClick = {
+                    scope.launch {
+                        busy = true
+                        val r = runCatching { Updater.download(context, u.url) }
+                        busy = false
+                        r.onSuccess { apk ->
+                            if (Updater.install(context, apk)) update = null
+                        }.onFailure {
+                            Toast.makeText(context, "Download failed", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }) { Text("Update") }
+            },
+            dismissButton = {
+                TextButton(enabled = !busy, onClick = { update = null }) { Text("Later") }
+            }
         )
     }
 }
