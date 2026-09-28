@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import fmanager.model.ArchiveOps
 import fmanager.model.FileItem
 import fmanager.model.FileOps
-import fmanager.model.OpProgress
 import fmanager.model.OpenKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
