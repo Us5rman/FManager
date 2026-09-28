@@ -50,9 +50,10 @@ class MainActivity : ComponentActivity() {
         lp.preferredDisplayModeId = best.modeId
         window.attributes = lp
     }
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyBestRefreshRate()
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
