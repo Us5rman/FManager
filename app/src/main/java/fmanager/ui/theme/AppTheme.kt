@@ -159,11 +159,13 @@ object ThemeSettings {
     var customBackground by mutableStateOf(0xFFE6F8EE.toInt())
         private set
 
-    // Restricted 'private set' prevents Kotlin from generating automatic setters that clash with custom functions
-    var rgbMode by mutableStateOf(RgbMode.SPECTRUM)
-        private set
-    var rgbOutlineEnabled by mutableStateOf(false)
-        private set
+    // Private mutable backing states to prevent Kotlin from generating JVM setter methods
+    private var _rgbMode by mutableStateOf(RgbMode.SPECTRUM)
+    private var _rgbOutlineEnabled by mutableStateOf(false)
+
+    // Public read-only val properties (NO generated setters = NO signature clashes)
+    val rgbMode: RgbMode get() = _rgbMode
+    val rgbOutlineEnabled: Boolean get() = _rgbOutlineEnabled
 
     fun init(context: Context) {
         val p = context.applicationContext
@@ -175,8 +177,8 @@ object ThemeSettings {
         customBackground = p.getInt("background", customBackground)
 
         val savedMode = p.getString("rgb_mode", RgbMode.SPECTRUM.name) ?: RgbMode.SPECTRUM.name
-        rgbMode = runCatching { RgbMode.valueOf(savedMode) }.getOrDefault(RgbMode.SPECTRUM)
-        rgbOutlineEnabled = p.getBoolean("rgb_outline", false)
+        _rgbMode = runCatching { RgbMode.valueOf(savedMode) }.getOrDefault(RgbMode.SPECTRUM)
+        _rgbOutlineEnabled = p.getBoolean("rgb_outline", false)
     }
 
     fun setTheme(id: String) {
@@ -185,12 +187,12 @@ object ThemeSettings {
     }
 
     fun setRgbMode(mode: RgbMode) {
-        rgbMode = mode
+        _rgbMode = mode
         prefs?.edit()?.putString("rgb_mode", mode.name)?.apply()
     }
 
     fun setRgbOutline(enabled: Boolean) {
-        rgbOutlineEnabled = enabled
+        _rgbOutlineEnabled = enabled
         prefs?.edit()?.putBoolean("rgb_outline", enabled)?.apply()
     }
 
