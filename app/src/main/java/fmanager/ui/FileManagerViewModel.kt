@@ -183,6 +183,33 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun createFile(name: String) {
+        val n = name.trim()
+        if (n.isEmpty() || n.contains('/')) {
+            _message.value = "Invalid name"
+            return
+        }
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                val f = File(_currentPath.value, n)
+                !f.exists() && f.createNewFile()
+            }
+            _message.value = if (ok) "File created" else "Could not create file"
+            refresh()
+        }
+    }
+
+    fun delete(item: FileItem) {
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                File(item.path).deleteRecursively()
+            }
+            _message.value = if (ok) "Deleted" else "Delete failed"
+            if (_clip.value?.path == item.path) _clip.value = null
+            refresh()
+        }
+    }
+
     private fun runOperation(
         label: String,
         failMsg: String,
