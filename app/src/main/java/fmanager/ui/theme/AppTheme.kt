@@ -1,928 +1,441 @@
-package fmanager.ui
+package fmanager.ui.theme
 
-import android.widget.Toast
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import dev.chrisbanes.haze.hazeChild
-import dev.chrisbanes.haze.materials.HazeMaterials
-import fmanager.model.ArchiveOps
-import fmanager.model.FileItem
-import fmanager.model.FileOps
-import fmanager.model.OpenKind
-import fmanager.ui.theme.ThemeSettings
-import fmanager.ui.theme.currentThemeIsGlass
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
-@Composable
-fun FileExplorerScreen(viewModel: FileManagerViewModel) {
-    val context = LocalContext.current
+enum class RgbMode(val label: String) {
+    SPECTRUM("Smooth Spectrum"),
+    RIGHT_TO_LEFT("Right to Left"),
+    LEFT_TO_RIGHT("Left to Right"),
+    TOP_TO_BOTTOM("Top to Bottom"),
+    BOTTOM_TO_TOP("Bottom to Top"),
+    PULSE("Breathing Pulse"),
+    CYBER_WAVE("Cyberpunk Wave")
+}
 
-    // ViewModel States
-    val currentPath by viewModel.currentPath.collectAsState()
-    val fileList by viewModel.fileList.collectAsState()
-    val clip by viewModel.clip.collectAsState()
-    val message by viewModel.message.collectAsState()
-    val progress by viewModel.progress.collectAsState()
-    val editing by viewModel.editing.collectAsState()
-    val viewer by viewModel.viewer.collectAsState()
+data class ThemeSpec(
+    val id: String,
+    val title: String,
+    val dark: Boolean,
+    val primary: Color,
+    val background: Color,
+    val surface: Color,
+    val gradient: List<Color>? = null,
+    val isGlass: Boolean = false
+)
 
-    // Settings States
-    val compactSpacing by viewModel.compactSpacing.collectAsState()
-    val viewModeRaw by viewModel.viewMode.collectAsState()
-    val isGrid = viewModeRaw.trim().equals("grid", ignoreCase = true)
+data class ThemePreset(
+    val id: String,
+    val title: String,
+    val light: ThemeSpec,
+    val dark: ThemeSpec
+) {
+    fun spec(systemDark: Boolean) = if (systemDark) dark else light
+}
 
-    // Full-screen Navigation States
-    var settingsOpen by remember { mutableStateOf(false) }
-    var informationOpen by remember { mutableStateOf(false) }
-
-    // Dialog States
-    var selectedItemForMenu by remember { mutableStateOf<FileItem?>(null) }
-    var openAsItem by remember { mutableStateOf<FileItem?>(null) }
-    var archiveViewItem by remember { mutableStateOf<FileItem?>(null) }
-    var renameItem by remember { mutableStateOf<FileItem?>(null) }
-    var propertiesItem by remember { mutableStateOf<FileItem?>(null) }
-    var deleteItem by remember { mutableStateOf<FileItem?>(null) }
-    var showCreateFolderDialog by remember { mutableStateOf(false) }
-    var showCreateFileDialog by remember { mutableStateOf(false) }
-    var compressItem by remember { mutableStateOf<FileItem?>(null) }
-
-    // FAB expand/collapse + search reveal
-    var fabExpanded by remember { mutableStateOf(false) }
-    var searchAllOpen by remember { mutableStateOf(false) }
-    var searchFolderOpen by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
-
-    LaunchedEffect(message) {
-        message?.let {
-            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
-            viewModel.messageShown()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        viewModel.refresh()
-    }
-
-    val e = editing
-    val v = viewer
-
-    when {
-        e != null -> TextEditorScreen(e, viewModel)
-        v != null -> when (v.kind) {
-            OpenKind.IMAGE -> ImageViewerScreen(v.item) { viewModel.closeViewer() }
-            else -> MediaPlayerScreen(v.item, v.kind == OpenKind.VIDEO) { viewModel.closeViewer() }
-        }
-        settingsOpen -> SettingsScreen(onClose = { settingsOpen = false }, viewModel = viewModel)
-        informationOpen -> InformationScreen(onClose = { informationOpen = false })
-        archiveViewItem != null -> ArchiveContentsScreen(
-            item = archiveViewItem!!,
-            onClose = { archiveViewItem = null }
+val presetThemes = listOf(
+    ThemePreset(
+        "fluorite", "Fluorite",
+        light = ThemeSpec(
+            "fluorite", "Fluorite", false,
+            primary = Color(0xFF10B981),
+            background = Color(0xFFE6F8EE),
+            surface = Color(0xFFCFF1DF),
+            gradient = listOf(Color(0xFFE9FBF1), Color(0xFFCDEFDD), Color(0xFFA9E4C7))
+        ),
+        dark = ThemeSpec(
+            "fluorite", "Fluorite", true,
+            primary = Color(0xFF2ECC71),
+            background = Color(0xFF06170F),
+            surface = Color(0xFF123626),
+            gradient = listOf(Color(0xFF041009), Color(0xFF0A2618), Color(0xFF104A31))
         )
-        else -> {
-            var topMenuExpanded by remember { mutableStateOf(false) }
-            val isGlass = currentThemeIsGlass()
-
-            BackHandler(enabled = currentPath != viewModel.rootPath) {
-                viewModel.navigateUp()
-            }
-
-            // Runs off the main thread and debounces: typing quickly cancels the
-            // previous scan before it starts, instead of stacking up full-storage
-            // walks on every keystroke (that was the cause of the ANR/freeze).
-            var displayedList by remember { mutableStateOf(fileList) }
-            LaunchedEffect(fileList, searchQuery, searchFolderOpen, searchAllOpen, currentPath) {
-                if (searchQuery.isBlank()) {
-                    displayedList = fileList
-                } else {
-                    delay(300)
-                    displayedList = withContext(Dispatchers.IO) {
-                        when {
-                            searchAllOpen -> runCatching {
-                                java.io.File(viewModel.rootPath).walkTopDown()
-                                    .filter { it.name.contains(searchQuery, ignoreCase = true) }
-                                    .map { FileItem.fromFile(it) }
-                                    .toList()
-                            }.getOrDefault(emptyList())
-                            searchFolderOpen -> runCatching {
-                                java.io.File(currentPath).walkTopDown()
-                                    .filter { it.path != currentPath }
-                                    .filter { it.name.contains(searchQuery, ignoreCase = true) }
-                                    .map { FileItem.fromFile(it) }
-                                    .toList()
-                            }.getOrDefault(emptyList())
-                            else -> fileList.filter { it.name.contains(searchQuery, ignoreCase = true) }
-                        }
-                    }
-                }
-            }
-
-            val currentFolderName = remember(currentPath, viewModel.rootPath) {
-                if (currentPath == viewModel.rootPath) "Home"
-                else currentPath.substringAfterLast('/')
-            }
-
-            val segments = remember(currentPath, viewModel.rootPath) {
-                val root = viewModel.rootPath.trimEnd('/')
-                val rel = currentPath.removePrefix(root).trim('/')
-                val parts = if (rel.isBlank()) emptyList() else rel.split('/')
-                var acc = root
-                val list = mutableListOf("Home" to root)
-                for (p in parts) {
-                    acc = "$acc/$p"
-                    list += p to acc
-                }
-                list
-            }
-
-            Scaffold(
-                topBar = {
-                    Column(
-                        modifier = if (isGlass) {
-                            Modifier.hazeChild(state = ThemeSettings.hazeState, style = HazeMaterials.thin())
-                        } else Modifier
-                    ) {
-                        TopAppBar(
-                            title = { Text(currentFolderName, style = MaterialTheme.typography.titleMedium) },
-                            colors = TopAppBarDefaults.topAppBarColors(
-                                containerColor = if (isGlass) androidx.compose.ui.graphics.Color.Transparent
-                                                 else MaterialTheme.colorScheme.background,
-                                scrolledContainerColor = if (isGlass) androidx.compose.ui.graphics.Color.Transparent
-                                                          else MaterialTheme.colorScheme.background
-                            ),
-                            navigationIcon = {
-                                if (currentPath != viewModel.rootPath) {
-                                    IconButton(onClick = { viewModel.navigateUp() }) {
-                                        Icon(Icons.Default.ArrowBack, contentDescription = "Up")
-                                    }
-                                }
-                            },
-                            actions = {
-                                IconButton(onClick = { topMenuExpanded = true }) {
-                                    Icon(Icons.Default.MoreVert, contentDescription = "Menu")
-                                }
-                                DropdownMenu(
-                                    expanded = topMenuExpanded,
-                                    onDismissRequest = { topMenuExpanded = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Settings") },
-                                        leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                                        onClick = {
-                                            topMenuExpanded = false
-                                            settingsOpen = true
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Information") },
-                                        leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
-                                        onClick = {
-                                            topMenuExpanded = false
-                                            informationOpen = true
-                                        }
-                                    )
-                                }
-                            }
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 16.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            segments.forEachIndexed { index, (label, path) ->
-                                if (index > 0) {
-                                    Text(
-                                        " / ",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                val isLast = index == segments.lastIndex
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (isLast) MaterialTheme.colorScheme.onSurface
-                                            else MaterialTheme.colorScheme.primary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = if (isLast) Modifier else Modifier.clickable {
-                                        viewModel.loadDirectory(path)
-                                    }
-                                )
-                            }
-                        }
-
-                        AnimatedVisibility(
-                            visible = searchAllOpen || searchFolderOpen,
-                            enter = expandVertically(tween(220)) + fadeIn(tween(220)),
-                            exit = shrinkVertically(tween(180)) + fadeOut(tween(140))
-                        ) {
-                            OutlinedTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                                singleLine = true,
-                                placeholder = {
-                                    Text(if (searchFolderOpen) "Search this folder (all levels)" else "Search all files")
-                                },
-                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                                trailingIcon = {
-                                    IconButton(onClick = {
-                                        searchQuery = ""
-                                        searchAllOpen = false
-                                        searchFolderOpen = false
-                                    }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Close search")
-                                    }
-                                }
-                            )
-                        }
-                    }
-                },
-                bottomBar = {
-                    clip?.let { c ->
-                        BottomAppBar {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = if (c.mode == ClipMode.COPY) "Item copied" else "Item ready to move",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                Row {
-                                    TextButton(onClick = { viewModel.cancelClip() }) { Text("Cancel") }
-                                    Button(onClick = { viewModel.paste() }) { Text("Paste Here") }
-                                }
-                            }
-                        }
-                    }
-                },
-                floatingActionButton = {
-                    ExpandableFab(
-                        expanded = fabExpanded,
-                        onToggle = { fabExpanded = !fabExpanded },
-                        onNewFolder = {
-                            fabExpanded = false
-                            showCreateFolderDialog = true
-                        },
-                        onNewFile = {
-                            fabExpanded = false
-                            showCreateFileDialog = true
-                        },
-                        onSearchAll = {
-                            fabExpanded = false
-                            searchFolderOpen = false
-                            searchAllOpen = true
-                        },
-                        onSearchFolder = {
-                            fabExpanded = false
-                            searchAllOpen = false
-                            searchFolderOpen = true
-                        }
-                    )
-                }
-            ) { padding ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                        .then(
-                            if (fabExpanded) Modifier.blur(16.dp) else Modifier
-                        )
-                ) {
-                    if (displayedList.isEmpty()) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                if (searchQuery.isBlank()) "Folder is empty" else "No matches",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else if (isGrid) {
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 96.dp),
-                            contentPadding = PaddingValues(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(displayedList, key = { it.path }) { item ->
-                                FileGridItem(
-                                    item = item,
-                                    onClick = { handleItemClick(item, viewModel) { archiveViewItem = it } },
-                                    onLongClick = { selectedItemForMenu = item }
-                                )
-                            }
-                        }
-                    } else {
-                        LazyColumn(
-                            contentPadding = PaddingValues(vertical = 4.dp)
-                        ) {
-                            items(displayedList, key = { it.path }) { item ->
-                                FileListItem(
-                                    item = item,
-                                    compact = compactSpacing,
-                                    onClick = { handleItemClick(item, viewModel) { archiveViewItem = it } },
-                                    onLongClick = { selectedItemForMenu = item }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            progress?.let { pr ->
-                Dialog(onDismissRequest = { /* not dismissible by tapping outside */ }) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(pr.label, style = MaterialTheme.typography.titleMedium)
-                            Spacer(Modifier.height(12.dp))
-                            if (pr.fraction >= 0f) {
-                                LinearProgressIndicator(
-                                    progress = { pr.fraction },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            } else {
-                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                            }
-                            Spacer(Modifier.height(12.dp))
-                            TextButton(onClick = { viewModel.cancelOperation() }) { Text("Cancel") }
-                        }
-                    }
-                }
-            }
-
-            selectedItemForMenu?.let { item ->
-                FileContextMenuSheet(
-                    item = item,
-                    onDismiss = { selectedItemForMenu = null },
-                    onOpenAs = {
-                        openAsItem = item
-                        selectedItemForMenu = null
-                    },
-                    onCopy = {
-                        viewModel.setClip(item, ClipMode.COPY)
-                        selectedItemForMenu = null
-                    },
-                    onMove = {
-                        viewModel.setClip(item, ClipMode.MOVE)
-                        selectedItemForMenu = null
-                    },
-                    onRename = {
-                        renameItem = item
-                        selectedItemForMenu = null
-                    },
-                    onCompress = {
-                        compressItem = item
-                        selectedItemForMenu = null
-                    },
-                    onExtract = {
-                        viewModel.extract(item, toFolder = true)
-                        selectedItemForMenu = null
-                    },
-                    onProperties = {
-                        propertiesItem = item
-                        selectedItemForMenu = null
-                    },
-                    onDelete = {
-                        deleteItem = item
-                        selectedItemForMenu = null
-                    }
-                )
-            }
-
-            openAsItem?.let { item ->
-                OpenAsDialog(
-                    item = item,
-                    onDismiss = { openAsItem = null },
-                    onChooseText = { viewModel.openEditor(item) },
-                    onChooseImage = { viewModel.openViewer(item, OpenKind.IMAGE) },
-                    onChooseVideo = { viewModel.openViewer(item, OpenKind.VIDEO) },
-                    onChooseAudio = { viewModel.openViewer(item, OpenKind.AUDIO) },
-                    onChooseArchive = { archiveViewItem = item }
-                )
-            }
-
-            deleteItem?.let { item ->
-                AlertDialog(
-                    onDismissRequest = { deleteItem = null },
-                    title = { Text("Delete") },
-                    text = { Text("Delete \"${item.name}\"? This cannot be undone.") },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            viewModel.delete(item)
-                            deleteItem = null
-                        }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { deleteItem = null }) { Text("Cancel") }
-                    }
-                )
-            }
-
-            renameItem?.let { item ->
-                var text by remember { mutableStateOf(item.name) }
-                AlertDialog(
-                    onDismissRequest = { renameItem = null },
-                    title = { Text("Rename") },
-                    text = {
-                        OutlinedTextField(
-                            value = text,
-                            onValueChange = { text = it },
-                            singleLine = true,
-                            label = { Text("New Name") }
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            if (text.isNotBlank()) viewModel.rename(item, text.trim())
-                            renameItem = null
-                        }) { Text("OK") }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { renameItem = null }) { Text("Cancel") }
-                    }
-                )
-            }
-
-            if (showCreateFolderDialog) {
-                var folderName by remember { mutableStateOf("") }
-                AlertDialog(
-                    onDismissRequest = { showCreateFolderDialog = false },
-                    title = { Text("Create Folder") },
-                    text = {
-                        OutlinedTextField(
-                            value = folderName,
-                            onValueChange = { folderName = it },
-                            singleLine = true,
-                            label = { Text("Folder Name") }
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            if (folderName.isNotBlank()) viewModel.createFolder(folderName.trim())
-                            showCreateFolderDialog = false
-                        }) { Text("Create") }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showCreateFolderDialog = false }) { Text("Cancel") }
-                    }
-                )
-            }
-
-            if (showCreateFileDialog) {
-                var fileName by remember { mutableStateOf("") }
-                AlertDialog(
-                    onDismissRequest = { showCreateFileDialog = false },
-                    title = { Text("Create File") },
-                    text = {
-                        OutlinedTextField(
-                            value = fileName,
-                            onValueChange = { fileName = it },
-                            singleLine = true,
-                            label = { Text("File Name") }
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            if (fileName.isNotBlank()) viewModel.createFile(fileName.trim())
-                            showCreateFileDialog = false
-                        }) { Text("Create") }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showCreateFileDialog = false }) { Text("Cancel") }
-                    }
-                )
-            }
-
-            propertiesItem?.let { item ->
-                var stats by remember { mutableStateOf<FileOps.Stats?>(null) }
-                LaunchedEffect(item) { stats = viewModel.stats(item) }
-
-                AlertDialog(
-                    onDismissRequest = { propertiesItem = null },
-                    title = { Text("Properties") },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Name: ${item.name}")
-                            Text("Path: ${item.path}")
-                            stats?.let { s -> Text("Details: ${s.toString()}") } ?: Text("Calculating size...")
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { propertiesItem = null }) { Text("Close") }
-                    }
-                )
-            }
-
-            compressItem?.let { item ->
-                var archiveName by remember { mutableStateOf(item.name) }
-                AlertDialog(
-                    onDismissRequest = { compressItem = null },
-                    title = { Text("Compress Item") },
-                    text = {
-                        OutlinedTextField(
-                            value = archiveName,
-                            onValueChange = { archiveName = it },
-                            singleLine = true,
-                            label = { Text("Archive Name") }
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            if (archiveName.isNotBlank()) {
-                                viewModel.compress(
-                                    item = item,
-                                    format = ArchiveOps.Format.ZIP,
-                                    level = ArchiveOps.Level.NORMAL,
-                                    name = archiveName.trim()
-                                )
-                            }
-                            compressItem = null
-                        }) { Text("Compress") }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { compressItem = null }) { Text("Cancel") }
-                    }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ExpandableFab(
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    onNewFolder: () -> Unit,
-    onNewFile: () -> Unit,
-    onSearchAll: () -> Unit,
-    onSearchFolder: () -> Unit
-) {
-    Column(horizontalAlignment = Alignment.End) {
-        AnimatedVisibility(
-            visible = expanded,
-            enter = fadeIn(tween(200)) + expandVertically(tween(220)),
-            exit = fadeOut(tween(150)) + shrinkVertically(tween(160))
-        ) {
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                MiniFabAction(Icons.Default.Public, "Search All Files", onSearchAll)
-                MiniFabAction(Icons.Default.Search, "Search This Folder", onSearchFolder)
-                MiniFabAction(Icons.Default.NoteAdd, "New File", onNewFile)
-                MiniFabAction(Icons.Default.CreateNewFolder, "New Folder", onNewFolder)
-                Spacer(Modifier.height(4.dp))
-            }
-        }
-
-        val rotation by androidx.compose.animation.core.animateFloatAsState(
-            targetValue = if (expanded) 45f else 0f,
-            animationSpec = tween(220),
-            label = "fabRotation"
+    ),
+    ThemePreset(
+        "rgb", "RGB",
+        light = ThemeSpec(
+            "rgb", "RGB", false,
+            primary = Color(0xFFFF0055),
+            background = Color(0xFFFFFFFF),
+            surface = Color(0xFFF2F2F7)
+        ),
+        dark = ThemeSpec(
+            "rgb", "RGB", true,
+            primary = Color(0xFF00FFCC),
+            background = Color(0xFF000000),
+            surface = Color(0xFF18181A)
         )
+    ),
+    ThemePreset(
+        "glass", "Glass",
+        // Real glass needs colorful, detailed content behind it to actually look like
+        // anything when blurred — a flat background blurred is still flat. Keep the
+        // vivid gradient here; the blur+tint now happens on the surfaces (top bar,
+        // sheets) via HazeMaterials, matching the iOS Control Center reference look.
+        light = ThemeSpec(
+            "glass", "Glass", false,
+            primary = Color(0xFF5B6CFF),
+            background = Color(0xFFDDE7FF),
+            surface = Color(0xFFEEF3FF),
+            gradient = listOf(Color(0xFF9FD8FF), Color(0xFFD7B8FF), Color(0xFFFFC9E3)),
+            isGlass = true
+        ),
+        dark = ThemeSpec(
+            "glass", "Glass", true,
+            primary = Color(0xFF8C9BFF),
+            background = Color(0xFF14172B),
+            surface = Color(0xFF1E223D),
+            gradient = listOf(Color(0xFF16233F), Color(0xFF2A1F4A), Color(0xFF3F1F3A)),
+            isGlass = true
+        )
+    ),
+    ThemePreset(
+        "midnight", "Void",
+        light = ThemeSpec(
+            "midnight", "Void", false,
+            primary = Color(0xFF00838F),
+            background = Color(0xFFF5F7F8),
+            surface = Color(0xFFFFFFFF)
+        ),
+        dark = ThemeSpec(
+            "midnight", "Void", true,
+            primary = Color(0xFF00E5FF),
+            background = Color(0xFF000000),
+            surface = Color(0xFF121212)
+        )
+    ),
+    ThemePreset(
+        "sunset", "Ember",
+        light = ThemeSpec(
+            "sunset", "Ember", false,
+            primary = Color(0xFFE65100),
+            background = Color(0xFFFFEFE3),
+            surface = Color(0xFFFFF2E8),
+            gradient = listOf(Color(0xFFFFE0B2), Color(0xFFFFB199), Color(0xFFFF8FA3))
+        ),
+        dark = ThemeSpec(
+            "sunset", "Ember", true,
+            primary = Color(0xFFFFB74D),
+            background = Color(0xFF2B1055),
+            surface = Color(0xFF1E1035),
+            gradient = listOf(Color(0xFF2B1055), Color(0xFF8E2DE2), Color(0xFFFF6E7F))
+        )
+    ),
+    ThemePreset(
+        "ocean", "Tide",
+        light = ThemeSpec(
+            "ocean", "Tide", false,
+            primary = Color(0xFF0277BD),
+            background = Color(0xFFEAF6FB),
+            surface = Color(0xFFFFFFFF)
+        ),
+        dark = ThemeSpec(
+            "ocean", "Tide", true,
+            primary = Color(0xFF4FC3F7),
+            background = Color(0xFF07161F),
+            surface = Color(0xFF0F2733)
+        )
+    )
+)
 
-        FloatingActionButton(
-            onClick = onToggle,
-            shape = CircleShape,
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = if (expanded) "Close menu" else "Add",
-                modifier = Modifier.graphicsLayer(rotationZ = rotation)
-            )
+object ThemeSettings {
+    const val DEFAULT_ID = "fluorite"
+    private var prefs: SharedPreferences? = null
+
+    var themeId by mutableStateOf(DEFAULT_ID)
+        private set
+    var customAccent by mutableStateOf(0xFF10B981.toInt())
+        private set
+    var customBackground by mutableStateOf(0xFFE6F8EE.toInt())
+        private set
+
+    private var _rgbMode by mutableStateOf(RgbMode.SPECTRUM)
+    private var _rgbOutlineEnabled by mutableStateOf(false)
+    private var _rgbSpeedSeconds by mutableStateOf(10f)
+
+    val rgbMode: RgbMode get() = _rgbMode
+    val rgbOutlineEnabled: Boolean get() = _rgbOutlineEnabled
+    val rgbSpeedSeconds: Float get() = _rgbSpeedSeconds
+
+    // Shared blur source: the app's content registers here (Modifier.haze), and
+    // glass surfaces (top bar, sheets) read from it via hazeChild.
+    val hazeState = HazeState()
+
+    fun init(context: Context) {
+        val p = context.applicationContext
+            .getSharedPreferences("fmanager_theme", Context.MODE_PRIVATE)
+        prefs = p
+        val saved = p.getString("theme", DEFAULT_ID) ?: DEFAULT_ID
+        themeId = if (saved == "default" || saved == "forest") DEFAULT_ID else saved
+        customAccent = p.getInt("accent", customAccent)
+        customBackground = p.getInt("background", customBackground)
+
+        val savedMode = p.getString("rgb_mode", RgbMode.SPECTRUM.name) ?: RgbMode.SPECTRUM.name
+        _rgbMode = runCatching { RgbMode.valueOf(savedMode) }.getOrDefault(RgbMode.SPECTRUM)
+        _rgbOutlineEnabled = p.getBoolean("rgb_outline", false)
+
+        val settingsPrefs = context.applicationContext
+            .getSharedPreferences("fmanager_settings", Context.MODE_PRIVATE)
+        _rgbSpeedSeconds = settingsPrefs.getFloat("rgb_speed", 10f)
+    }
+
+    fun setTheme(id: String) {
+        themeId = id
+        prefs?.edit()?.putString("theme", id)?.apply()
+    }
+
+    fun setRgbMode(mode: RgbMode) {
+        _rgbMode = mode
+        prefs?.edit()?.putString("rgb_mode", mode.name)?.apply()
+    }
+
+    fun setRgbOutline(enabled: Boolean) {
+        _rgbOutlineEnabled = enabled
+        prefs?.edit()?.putBoolean("rgb_outline", enabled)?.apply()
+    }
+
+    fun setRgbSpeedSeconds(seconds: Float) {
+        _rgbSpeedSeconds = seconds
+    }
+
+    fun updateCustom(accent: Int? = null, background: Int? = null) {
+        accent?.let { customAccent = it }
+        background?.let { customBackground = it }
+        themeId = "custom"
+        prefs?.edit()
+            ?.putString("theme", "custom")
+            ?.putInt("accent", customAccent)
+            ?.putInt("background", customBackground)
+            ?.apply()
+    }
+
+    fun defaultSpec(systemDark: Boolean): ThemeSpec =
+        presetThemes.first { it.id == DEFAULT_ID }.spec(systemDark)
+
+    fun customSpec(): ThemeSpec {
+        val bg = Color(customBackground)
+        val dark = bg.luminance() < 0.5f
+        val on = if (dark) Color(0xFFECE6F0) else Color(0xFF1C1B1F)
+        return ThemeSpec(
+            "custom", "Custom", dark,
+            primary = Color(customAccent),
+            background = bg,
+            surface = lerp(bg, on, 0.08f)
+        )
+    }
+
+    fun specFor(systemDark: Boolean): ThemeSpec = when (themeId) {
+        "custom" -> customSpec()
+        else -> presetThemes.firstOrNull { it.id == themeId }?.spec(systemDark)
+            ?: defaultSpec(systemDark)
+    }
+}
+
+@Composable
+fun rememberRgbColor(
+    mode: RgbMode = ThemeSettings.rgbMode,
+    durationMillis: Int = (ThemeSettings.rgbSpeedSeconds * 1000).toInt().coerceAtLeast(500)
+): Color {
+    val transition = rememberInfiniteTransition(label = "rgb_anim")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "progress"
+    )
+
+    return when (mode) {
+        RgbMode.SPECTRUM -> Color.hsv(progress * 360f, 0.85f, 1f)
+        RgbMode.RIGHT_TO_LEFT -> Color.hsv((1f - progress) * 360f, 0.85f, 1f)
+        RgbMode.LEFT_TO_RIGHT -> Color.hsv(progress * 360f, 0.85f, 1f)
+        RgbMode.TOP_TO_BOTTOM -> Color.hsv((progress * 360f + 90f) % 360f, 0.85f, 1f)
+        RgbMode.BOTTOM_TO_TOP -> Color.hsv((progress * 360f + 270f) % 360f, 0.85f, 1f)
+        RgbMode.PULSE -> {
+            val pulseVal = (kotlin.math.sin(progress * 2 * kotlin.math.PI).toFloat() + 1f) / 2f
+            Color.hsv(280f, 0.4f + pulseVal * 0.6f, 0.6f + pulseVal * 0.4f)
+        }
+        RgbMode.CYBER_WAVE -> {
+            val colors = listOf(Color(0xFFFF007F), Color(0xFF00E5FF), Color(0xFFFFEA00), Color(0xFF7C4DFF))
+            val scaled = progress * (colors.size - 1)
+            val idx = scaled.toInt()
+            val fraction = scaled - idx
+            val nextIdx = (idx + 1) % colors.size
+            lerp(colors[idx], colors[nextIdx], fraction)
+        }
+    }
+}
+
+private val cyberPalette = listOf(
+    Color(0xFFFF007F), Color(0xFF00E5FF), Color(0xFFFFEA00), Color(0xFF7C4DFF), Color(0xFFFF007F)
+)
+
+/**
+ * Builds the ring of colors for the screen-edge glow, driven by the mode.
+ * SPECTRUM/RIGHT_TO_LEFT/LEFT_TO_RIGHT/TOP_TO_BOTTOM/BOTTOM_TO_TOP all rotate a full
+ * rainbow, differing in direction and starting bias. PULSE renders a single hue
+ * whose brightness breathes. CYBER_WAVE cycles the same four neon colors used
+ * elsewhere in the app for consistency.
+ */
+private fun ringColors(phase: Float, mode: RgbMode, stops: Int = 48): List<Color> {
+    fun hueRing(offsetDeg: Float, reverse: Boolean): List<Color> {
+        val p = if (reverse) 1f - phase else phase
+        return (0..stops).map { i ->
+            val hue = ((i.toFloat() / stops) * 360f + p * 360f + offsetDeg) % 360f
+            Color.hsv(hue, 1f, 1f)
+        }
+    }
+    return when (mode) {
+        RgbMode.SPECTRUM -> hueRing(0f, reverse = false)
+        RgbMode.LEFT_TO_RIGHT -> hueRing(0f, reverse = false)
+        RgbMode.RIGHT_TO_LEFT -> hueRing(0f, reverse = true)
+        RgbMode.TOP_TO_BOTTOM -> hueRing(90f, reverse = false)
+        RgbMode.BOTTOM_TO_TOP -> hueRing(270f, reverse = true)
+        RgbMode.PULSE -> {
+            val pulseVal = (kotlin.math.sin(phase * 2 * kotlin.math.PI).toFloat() + 1f) / 2f
+            val c = Color.hsv(280f, 0.4f + pulseVal * 0.6f, 0.6f + pulseVal * 0.4f)
+            List(stops + 1) { c }
+        }
+        RgbMode.CYBER_WAVE -> (0..stops).map { i ->
+            val t = ((i.toFloat() / stops) + phase) % 1f
+            val scaled = t * (cyberPalette.size - 1)
+            val idx = scaled.toInt().coerceIn(0, cyberPalette.size - 2)
+            lerp(cyberPalette[idx], cyberPalette[idx + 1], scaled - idx)
         }
     }
 }
 
 @Composable
-private fun MiniFabAction(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(8.dp),
-            tonalElevation = 2.dp
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-            )
-        }
-        Spacer(Modifier.width(10.dp))
-        SmallFloatingActionButton(
-            onClick = onClick,
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-        ) {
-            Icon(icon, contentDescription = label)
-        }
+private fun Modifier.rgbScreenGlow(enabled: Boolean, durationSeconds: Float, mode: RgbMode): Modifier {
+    if (!enabled) return this
+    val durationMillis = (durationSeconds * 1000).toInt().coerceAtLeast(500)
+    val transition = rememberInfiniteTransition(label = "rgb_outline_anim")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(durationMillis, easing = LinearEasing)),
+        label = "phase"
+    )
+
+    return this.drawWithContent {
+        drawContent()
+
+        val strokeWidthPx = 5.dp.toPx()
+        val glowWidthPx = 18.dp.toPx()
+        // Inset by half the widest stroke so nothing is clipped by the box's own
+        // bounds — this is what fixes the "cut off" look and makes it true edge-to-edge.
+        val inset = glowWidthPx / 2f
+        val drawSize = Size(size.width - inset * 2, size.height - inset * 2)
+        val topLeft = Offset(inset, inset)
+        val center = Offset(size.width / 2f, size.height / 2f)
+
+        val colors = ringColors(phase, mode)
+        val brush = Brush.sweepGradient(colors = colors, center = center)
+        // Round joins/caps soften the corner artifacts that a sweep gradient
+        // otherwise produces on a rectangle (the "triangle" look).
+        val glowStroke = Stroke(width = glowWidthPx, join = StrokeJoin.Round, cap = StrokeCap.Round)
+        val lineStroke = Stroke(width = strokeWidthPx, join = StrokeJoin.Round, cap = StrokeCap.Round)
+
+        drawRoundRect(brush = brush, topLeft = topLeft, size = drawSize, cornerRadius = androidx.compose.ui.geometry.CornerRadius(24.dp.toPx()), style = glowStroke, alpha = 0.35f)
+        drawRoundRect(brush = brush, topLeft = topLeft, size = drawSize, cornerRadius = androidx.compose.ui.geometry.CornerRadius(24.dp.toPx()), style = lineStroke, alpha = 0.95f)
     }
 }
 
-private fun handleItemClick(
-    item: FileItem,
-    viewModel: FileManagerViewModel,
-    onOpenArchive: (FileItem) -> Unit
-) {
-    if (item.isDirectory) {
-        viewModel.loadDirectory(item.path)
-    } else if (ArchiveOps.canExtract(item.name)) {
-        onOpenArchive(item)
-    } else {
-        val lower = item.name.lowercase()
-        when {
-            lower.endsWith(".txt") || lower.endsWith(".json") || lower.endsWith(".xml") || lower.endsWith(".log") || lower.endsWith(".md") -> {
-                viewModel.openEditor(item)
-            }
-            lower.endsWith(".jpg") || lower.endsWith(".png") || lower.endsWith(".webp") || lower.endsWith(".gif") -> {
-                viewModel.openViewer(item, OpenKind.IMAGE)
-            }
-            lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".webm") -> {
-                viewModel.openViewer(item, OpenKind.VIDEO)
-            }
-            lower.endsWith(".mp3") || lower.endsWith(".wav") || lower.endsWith(".ogg") || lower.endsWith(".flac") -> {
-                viewModel.openViewer(item, OpenKind.AUDIO)
-            }
-            else -> viewModel.openEditor(item)
-        }
-    }
+private fun buildScheme(s: ThemeSpec, activePrimary: Color): ColorScheme {
+    val onSurface = if (s.dark) Color(0xFFECE6F0) else Color(0xFF1C1B1F)
+    val primaryColor = activePrimary
+    val onPrimary = if (primaryColor.luminance() > 0.5f) Color.Black else Color.White
+
+    val solidSurface = s.surface.copy(alpha = 1f)
+    val primaryContainer = lerp(solidSurface, primaryColor, 0.25f)
+    val page = if (s.isGlass) Color.Transparent else s.background
+
+    val base = if (s.dark) darkColorScheme() else lightColorScheme()
+    // The RGB theme's outline is NOT tinted here anymore — that was drawing a second
+    // glowing border on every card/text field in addition to the screen-edge glow.
+    val outlineColor = onSurface.copy(alpha = 0.4f)
+
+    return base.copy(
+        primary = primaryColor,
+        onPrimary = onPrimary,
+        primaryContainer = primaryContainer,
+        onPrimaryContainer = onSurface,
+        secondary = primaryColor,
+        onSecondary = onPrimary,
+        secondaryContainer = primaryContainer,
+        onSecondaryContainer = onSurface,
+        background = page,
+        onBackground = onSurface,
+        surface = if (s.isGlass) Color.Transparent else solidSurface,
+        onSurface = onSurface,
+        surfaceTint = Color.Transparent,
+        surfaceVariant = lerp(solidSurface, onSurface, 0.08f),
+        onSurfaceVariant = onSurface.copy(alpha = 0.7f),
+        outline = outlineColor,
+        outlineVariant = outlineColor.copy(alpha = 0.5f)
+    )
 }
 
-private fun iconFor(item: FileItem) =
-    if (item.isDirectory) Icons.Default.Folder else Icons.Default.InsertDriveFile
-
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun FileListItem(
-    item: FileItem,
-    compact: Boolean,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = if (compact) 2.dp else 6.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-    ) {
-        Row(
-            modifier = Modifier.padding(if (compact) 8.dp else 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = iconFor(item),
-                contentDescription = null,
-                tint = if (item.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier.size(if (compact) 20.dp else 24.dp)
-            )
-            Spacer(Modifier.width(16.dp))
-            Text(
-                text = item.name,
-                style = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+fun FManagerTheme(content: @Composable () -> Unit) {
+    val systemDark = isSystemInDarkTheme()
+    val spec = ThemeSettings.specFor(systemDark)
+    val isRgb = ThemeSettings.themeId == "rgb"
+    val dynamicRgbColor = rememberRgbColor()
+
+    val currentPrimary = if (isRgb) dynamicRgbColor else spec.primary
+    val rgbOutline = isRgb && ThemeSettings.rgbOutlineEnabled
+
+    val scheme = remember(spec, currentPrimary) { buildScheme(spec, currentPrimary) }
+
+    val bg = spec.gradient
+        ?.let { Modifier.background(Brush.linearGradient(it)) }
+        ?: Modifier.background(spec.background)
+
+    MaterialTheme(colorScheme = scheme) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(bg)
+                .haze(ThemeSettings.hazeState)
+                .rgbScreenGlow(
+                    enabled = rgbOutline,
+                    durationSeconds = ThemeSettings.rgbSpeedSeconds,
+                    mode = ThemeSettings.rgbMode
+                )
+        ) { content() }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/** True when the active theme should render surfaces as real frosted glass. */
 @Composable
-private fun FileGridItem(
-    item: FileItem,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp, horizontal = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(
-                imageVector = iconFor(item),
-                contentDescription = null,
-                modifier = Modifier.size(48.dp),
-                tint = if (item.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
-            )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = item.name,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
-        }
-    }
-}
-
-private data class ArchiveEntryRow(val name: String, val isDirectory: Boolean, val size: Long)
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ArchiveContentsScreen(item: FileItem, onClose: () -> Unit) {
-    BackHandler(onBack = onClose)
-
-    var entries by remember { mutableStateOf<List<ArchiveEntryRow>>(emptyList()) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var loading by remember { mutableStateOf(true) }
-
-    LaunchedEffect(item.path) {
-        loading = true
-        error = null
-        val result = withContextIO {
-            runCatching { listArchiveEntries(item) }
-        }
-        result.onSuccess { entries = it }
-            .onFailure { error = it.message ?: "Could not read archive" }
-        loading = false
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = {
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            when {
-                loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-                error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        "Couldn't open archive: ${error}",
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(24.dp),
-                        textAlign = TextAlign.Center
-                    )
-                }
-                entries.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Archive is empty", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                else -> LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
-                    items(entries, key = { it.name }) { entry ->
-                        ListItem(
-                            headlineContent = {
-                                Text(
-                                    entry.name.trimEnd('/').substringAfterLast('/'),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            },
-                            supportingContent = {
-                                Text(
-                                    if (entry.isDirectory) "Folder"
-                                    else "${entry.name} • ${formatBytes(entry.size)}"
-                                )
-                            },
-                            leadingContent = {
-                                Icon(
-                                    if (entry.isDirectory) Icons.Default.Folder else Icons.Default.InsertDriveFile,
-                                    contentDescription = null,
-                                    tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
-                                )
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-private suspend fun <T> withContextIO(block: suspend () -> T): T =
-    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { block() }
-
-private fun formatBytes(bytes: Long): String {
-    if (bytes < 1024) return "$bytes B"
-    val units = arrayOf("KB", "MB", "GB", "TB")
-    var value = bytes / 1024.0
-    var i = -1
-    while (value >= 1024 && i < units.size - 1) {
-        value /= 1024.0
-        i++
-    }
-    return if (i < 0) "%.0f B".format(bytes.toDouble())
-    else "%.1f %s".format(value, units[i])
-}
-
-private fun listArchiveEntries(item: FileItem): List<ArchiveEntryRow> {
-    val file = java.io.File(item.path)
-    val name = file.name.lowercase()
-    return when {
-        name.endsWith(".zip") || name.endsWith(".jar") || name.endsWith(".apk") ->
-            java.util.zip.ZipFile(file).use { zf ->
-                zf.entries().asSequence().map {
-                    ArchiveEntryRow(it.name, it.isDirectory, it.size.coerceAtLeast(0L))
-                }.toList()
-            }
-
-        name.endsWith(".7z") ->
-            org.apache.commons.compress.archivers.sevenz.SevenZFile(file).use { sz ->
-                sz.entries.map { ArchiveEntryRow(it.name, it.isDirectory, it.size.coerceAtLeast(0L)) }
-            }
-
-        name.endsWith(".rar") ->
-            com.github.junrar.Archive(file).use { rar ->
-                rar.fileHeaders.map {
-                    ArchiveEntryRow(
-                        it.fileName.replace('\\', '/'),
-                        it.isDirectory,
-                        it.fullUnpackSize.coerceAtLeast(0L)
-                    )
-                }
-            }
-
-        name.endsWith(".tar.gz") || name.endsWith(".tgz") || name.endsWith(".tar.bz2") ||
-        name.endsWith(".tbz2") || name.endsWith(".tbz") || name.endsWith(".tar.xz") ||
-        name.endsWith(".txz") || name.endsWith(".tar") -> {
-            val raw = java.io.BufferedInputStream(java.io.FileInputStream(file))
-            val decompressed = when {
-                name.endsWith(".gz") || name.endsWith(".tgz") ->
-                    org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream(raw)
-                name.endsWith(".bz2") || name.endsWith(".tbz2") || name.endsWith(".tbz") ->
-                    org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream(raw)
-                name.endsWith(".xz") || name.endsWith(".txz") ->
-                    org.apache.commons.compress.compressors.xz.XZCompressorInputStream(raw)
-                else -> raw
-            }
-            org.apache.commons.compress.archivers.tar.TarArchiveInputStream(decompressed).use { tin ->
-                val list = mutableListOf<ArchiveEntryRow>()
-                var e = tin.nextEntry
-                while (e != null) {
-                    list += ArchiveEntryRow(e.name, e.isDirectory, e.size.coerceAtLeast(0L))
-                    e = tin.nextEntry
-                }
-                list
-            }
-        }
-
-        else -> emptyList()
-    }
+fun currentThemeIsGlass(): Boolean {
+    val systemDark = isSystemInDarkTheme()
+    return ThemeSettings.specFor(systemDark).isGlass
 }
