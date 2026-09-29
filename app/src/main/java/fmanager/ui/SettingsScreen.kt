@@ -25,7 +25,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import fmanager.ui.theme.RgbMode
 import fmanager.ui.theme.ThemeSettings
 import fmanager.ui.theme.ThemeSpec
@@ -43,7 +42,7 @@ private val backgroundPalette = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onClose: () -> Unit, viewModel: FileManagerViewModel = viewModel()) {
+fun SettingsScreen(onClose: () -> Unit, viewModel: FileManagerViewModel) {
     val context = LocalContext.current
     BackHandler(onBack = onClose)
 
@@ -51,7 +50,7 @@ fun SettingsScreen(onClose: () -> Unit, viewModel: FileManagerViewModel = viewMo
     var showHiddenFiles by remember { mutableStateOf(prefs.getBoolean("show_hidden", false)) }
     var foldersFirst by remember { mutableStateOf(prefs.getBoolean("folders_first", true)) }
     var confirmDelete by remember { mutableStateOf(prefs.getBoolean("confirm_delete", true)) }
-    // Reads live from the ViewModel now, so this always reflects what the file list is actually using.
+    // Reads live from the ViewModel, so this always reflects what the file list is actually using.
     val viewMode by viewModel.viewMode.collectAsState()
     var isCompactDensity by remember { mutableStateOf(prefs.getBoolean("compact_density", false)) }
     var rgbDurationSeconds by remember { mutableStateOf(prefs.getFloat("rgb_speed", 10f)) }
@@ -108,10 +107,6 @@ fun SettingsScreen(onClose: () -> Unit, viewModel: FileManagerViewModel = viewMo
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // This switch is the actual screen-edge outline toggle (see FManagerTheme).
-                            // It was already only touching ThemeSettings, so the outline itself was
-                            // correct — it just wasn't being drawn as a screen border anywhere (fixed
-                            // in the theme file, not here).
                             Text("Screen Edge RGB Glow", style = MaterialTheme.typography.bodyMedium)
                             Switch(
                                 checked = ThemeSettings.rgbOutlineEnabled,
