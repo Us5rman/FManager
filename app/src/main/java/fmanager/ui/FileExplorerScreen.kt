@@ -14,7 +14,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -35,10 +34,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.materials.HazeMaterials
 import fmanager.model.ArchiveOps
 import fmanager.model.FileItem
 import fmanager.model.FileOps
 import fmanager.model.OpenKind
+import fmanager.ui.theme.ThemeSettings
+import fmanager.ui.theme.currentThemeIsGlass
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -57,7 +63,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
     // Settings States
     val compactSpacing by viewModel.compactSpacing.collectAsState()
     val viewModeRaw by viewModel.viewMode.collectAsState()
-    // Compared loosely so this keeps working no matter how the setting is cased/stored.
     val isGrid = viewModeRaw.trim().equals("grid", ignoreCase = true)
 
     // Full-screen Navigation States
@@ -77,7 +82,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
 
     // FAB expand/collapse + search reveal
     var fabExpanded by remember { mutableStateOf(false) }
-    // Two distinct search modes instead of one plain field.
     var searchAllOpen by remember { mutableStateOf(false) }
     var searchFolderOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -110,44 +114,47 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
         )
         else -> {
             var topMenuExpanded by remember { mutableStateOf(false) }
+            val isGlass = currentThemeIsGlass()
 
             BackHandler(enabled = currentPath != viewModel.rootPath) {
                 viewModel.navigateUp()
             }
 
-            val displayedList = remember(fileList, searchQuery, searchFolderOpen, searchAllOpen) {
-                when {
-                    searchQuery.isBlank() -> fileList
-                    searchAllOpen -> {
-                        // Deep scan from the device root, all levels.
-                        runCatching {
-                            java.io.File(viewModel.rootPath).walkTopDown()
-                                .filter { it.name.contains(searchQuery, ignoreCase = true) }
-                                .map { FileItem.fromFile(it) }
-                                .toList()
-                        }.getOrDefault(emptyList())
+            // Runs off the main thread and debounces: typing quickly cancels the
+            // previous scan before it starts, instead of stacking up full-storage
+            // walks on every keystroke (that was the cause of the ANR/freeze).
+            var displayedList by remember { mutableStateOf(fileList) }
+            LaunchedEffect(fileList, searchQuery, searchFolderOpen, searchAllOpen, currentPath) {
+                if (searchQuery.isBlank()) {
+                    displayedList = fileList
+                } else {
+                    delay(300)
+                    displayedList = withContext(Dispatchers.IO) {
+                        when {
+                            searchAllOpen -> runCatching {
+                                java.io.File(viewModel.rootPath).walkTopDown()
+                                    .filter { it.name.contains(searchQuery, ignoreCase = true) }
+                                    .map { FileItem.fromFile(it) }
+                                    .toList()
+                            }.getOrDefault(emptyList())
+                            searchFolderOpen -> runCatching {
+                                java.io.File(currentPath).walkTopDown()
+                                    .filter { it.path != currentPath }
+                                    .filter { it.name.contains(searchQuery, ignoreCase = true) }
+                                    .map { FileItem.fromFile(it) }
+                                    .toList()
+                            }.getOrDefault(emptyList())
+                            else -> fileList.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                        }
                     }
-                    searchFolderOpen -> {
-                        // Deep scan: walk every level under the current folder, not just this level.
-                        runCatching {
-                            java.io.File(currentPath).walkTopDown()
-                                .filter { it.path != currentPath }
-                                .filter { it.name.contains(searchQuery, ignoreCase = true) }
-                                .map { FileItem.fromFile(it) }
-                                .toList()
-                        }.getOrDefault(emptyList())
-                    }
-                    else -> fileList.filter { it.name.contains(searchQuery, ignoreCase = true) }
                 }
             }
 
-            // Name shown at the top: just the current folder, not the app name.
             val currentFolderName = remember(currentPath, viewModel.rootPath) {
                 if (currentPath == viewModel.rootPath) "Home"
                 else currentPath.substringAfterLast('/')
             }
 
-            // Breadcrumb segments built from the current path, each one tappable.
             val segments = remember(currentPath, viewModel.rootPath) {
                 val root = viewModel.rootPath.trimEnd('/')
                 val rel = currentPath.removePrefix(root).trim('/')
@@ -163,12 +170,18 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
 
             Scaffold(
                 topBar = {
-                    Column {
+                    Column(
+                        modifier = if (isGlass) {
+                            Modifier.hazeChild(state = ThemeSettings.hazeState, style = HazeMaterials.thin())
+                        } else Modifier
+                    ) {
                         TopAppBar(
                             title = { Text(currentFolderName, style = MaterialTheme.typography.titleMedium) },
                             colors = TopAppBarDefaults.topAppBarColors(
-                                containerColor = MaterialTheme.colorScheme.background,
-                                scrolledContainerColor = MaterialTheme.colorScheme.background
+                                containerColor = if (isGlass) androidx.compose.ui.graphics.Color.Transparent
+                                                 else MaterialTheme.colorScheme.background,
+                                scrolledContainerColor = if (isGlass) androidx.compose.ui.graphics.Color.Transparent
+                                                          else MaterialTheme.colorScheme.background
                             ),
                             navigationIcon = {
                                 if (currentPath != viewModel.rootPath) {
@@ -205,7 +218,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                             }
                         )
 
-                        // Clickable path breadcrumb: tap any segment to jump there.
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -236,7 +248,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                             }
                         }
 
-                        // Search field for either mode, opened from the FAB.
                         AnimatedVisibility(
                             visible = searchAllOpen || searchFolderOpen,
                             enter = expandVertically(tween(220)) + fadeIn(tween(220)),
@@ -317,8 +328,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding)
-                        // Blurs the file list while the FAB menu is open so the action
-                        // labels stay readable against any background content/color.
                         .then(
                             if (fabExpanded) Modifier.blur(16.dp) else Modifier
                         )
@@ -359,12 +368,9 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                             }
                         }
                     }
-
                 }
             }
 
-            // Compress/extract/repair progress, shown as its own popup dialog
-            // (was previously an inline card centered over the file list).
             progress?.let { pr ->
                 Dialog(onDismissRequest = { /* not dismissible by tapping outside */ }) {
                     Card(
@@ -392,7 +398,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                 }
             }
 
-            // --- Context menu for long-pressed item, in its own file ---
             selectedItemForMenu?.let { item ->
                 FileContextMenuSheet(
                     item = item,
@@ -432,7 +437,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                 )
             }
 
-            // --- "Open As" chooser, opened from the context menu ---
             openAsItem?.let { item ->
                 OpenAsDialog(
                     item = item,
@@ -445,7 +449,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                 )
             }
 
-            // --- Delete confirmation ---
             deleteItem?.let { item ->
                 AlertDialog(
                     onDismissRequest = { deleteItem = null },
@@ -463,7 +466,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                 )
             }
 
-            // --- Rename Dialog ---
             renameItem?.let { item ->
                 var text by remember { mutableStateOf(item.name) }
                 AlertDialog(
@@ -489,7 +491,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                 )
             }
 
-            // --- New Folder Dialog ---
             if (showCreateFolderDialog) {
                 var folderName by remember { mutableStateOf("") }
                 AlertDialog(
@@ -515,7 +516,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                 )
             }
 
-            // --- New File Dialog ---
             if (showCreateFileDialog) {
                 var fileName by remember { mutableStateOf("") }
                 AlertDialog(
@@ -541,7 +541,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                 )
             }
 
-            // --- Properties Dialog ---
             propertiesItem?.let { item ->
                 var stats by remember { mutableStateOf<FileOps.Stats?>(null) }
                 LaunchedEffect(item) { stats = viewModel.stats(item) }
@@ -562,7 +561,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                 )
             }
 
-            // --- Compress Dialog ---
             compressItem?.let { item ->
                 var archiveName by remember { mutableStateOf(item.name) }
                 AlertDialog(
@@ -598,13 +596,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
     }
 }
 
-/**
- * Circular FAB, bottom-right, that expands into four labeled actions
- * (Search All Files / Search This Folder / New File / New Folder) with a
- * smooth scale+fade, colored from the current theme's primary color.
- * The screen behind it is blurred while this is open (see the content Box's
- * .blur modifier) so the labels stay readable over any background.
- */
 @Composable
 private fun ExpandableFab(
     expanded: Boolean,
@@ -687,8 +678,6 @@ private fun handleItemClick(
     if (item.isDirectory) {
         viewModel.loadDirectory(item.path)
     } else if (ArchiveOps.canExtract(item.name)) {
-        // Archives (zip/7z/tar family/rar, including rar5) show their contents
-        // in a browsable list instead of opening in the text editor.
         onOpenArchive(item)
     } else {
         val lower = item.name.lowercase()
@@ -710,8 +699,6 @@ private fun handleItemClick(
     }
 }
 
-// Folders use the theme's primary color; files use tertiary, so the two are
-// visually distinct at a glance in both list and grid modes.
 private fun iconFor(item: FileItem) =
     if (item.isDirectory) Icons.Default.Folder else Icons.Default.InsertDriveFile
 
@@ -788,12 +775,6 @@ private fun FileGridItem(
     }
 }
 
-/**
- * Read-only "peek inside" screen for archives: lists entry names/sizes without
- * extracting anything to disk. Supports zip/jar/apk, 7z, tar family, and rar
- * (including rar5, since junrar 7.x reads both rar4 and rar5 through the same
- * Archive API already used for extraction in ArchiveOps).
- */
 private data class ArchiveEntryRow(val name: String, val isDirectory: Boolean, val size: Long)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -924,10 +905,6 @@ private fun listArchiveEntries(item: FileItem): List<ArchiveEntryRow> {
             val raw = java.io.BufferedInputStream(java.io.FileInputStream(file))
             val decompressed = when {
                 name.endsWith(".gz") || name.endsWith(".tgz") ->
-                    org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream(raw)
-                name.endsWith(".bz2") || name.endsWith(".tbz2") || name.endsWith(".tbz") ->
-                    org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream(raw)
-                name.endsWith(".xz") || name.endsWith(".txz") ->
                     org.apache.commons.compress.compressors.xz.XZCompressorInputStream(raw)
                 else -> raw
             }
@@ -944,4 +921,4 @@ private fun listArchiveEntries(item: FileItem): List<ArchiveEntryRow> {
 
         else -> emptyList()
     }
-}
+} 
