@@ -91,6 +91,8 @@ dependencies {
     implementation("io.coil-kt:coil-gif:2.6.0")
     implementation("io.coil-kt:coil-svg:2.6.0")
     implementation("io.coil-kt:coil-video:2.6.0")
+    implementation("dev.chrisbanes.haze:haze:0.7.3")
+    implementation("dev.chrisbanes.haze:haze-materials:0.7.3")
 
     implementation("org.apache.commons:commons-compress:1.26.1")
     implementation("org.tukaani:xz:1.9")
