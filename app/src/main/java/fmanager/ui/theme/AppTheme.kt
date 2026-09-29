@@ -14,15 +14,15 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 
 enum class RgbMode(val label: String) {
     SPECTRUM("Smooth Spectrum"),
@@ -41,7 +41,10 @@ data class ThemeSpec(
     val primary: Color,
     val background: Color,
     val surface: Color,
-    val gradient: List<Color>? = null
+    val gradient: List<Color>? = null,
+    // When true, surfaces (top bar, sheets, dialogs) should blur what's behind them
+    // instead of using a flat translucent color.
+    val isGlass: Boolean = false
 )
 
 data class ThemePreset(
@@ -93,14 +96,16 @@ val presetThemes = listOf(
             primary = Color(0xFF5B6CFF),
             background = Color(0xFFDDE7FF),
             surface = Color(0xFFEEF3FF),
-            gradient = listOf(Color(0xFF9FD8FF), Color(0xFFD7B8FF), Color(0xFFFFC9E3))
+            gradient = listOf(Color(0xFF9FD8FF), Color(0xFFD7B8FF), Color(0xFFFFC9E3)),
+            isGlass = true
         ),
         dark = ThemeSpec(
             "glass", "Glass", true,
             primary = Color(0xFF8C9BFF),
             background = Color(0xFF14172B),
             surface = Color(0xFF1E223D),
-            gradient = listOf(Color(0xFF16233F), Color(0xFF2A1F4A), Color(0xFF3F1F3A))
+            gradient = listOf(Color(0xFF16233F), Color(0xFF2A1F4A), Color(0xFF3F1F3A)),
+            isGlass = true
         )
     ),
     ThemePreset(
@@ -165,12 +170,15 @@ object ThemeSettings {
 
     private var _rgbMode by mutableStateOf(RgbMode.SPECTRUM)
     private var _rgbOutlineEnabled by mutableStateOf(false)
-    // Animation speed in seconds, matching the slider on the Settings screen (3..30).
     private var _rgbSpeedSeconds by mutableStateOf(10f)
 
     val rgbMode: RgbMode get() = _rgbMode
     val rgbOutlineEnabled: Boolean get() = _rgbOutlineEnabled
     val rgbSpeedSeconds: Float get() = _rgbSpeedSeconds
+
+    // Shared blur source for the whole app: the main content registers itself here
+    // (Modifier.haze(hazeState)), and glass surfaces read from it (hazeChild).
+    val hazeState = HazeState()
 
     fun init(context: Context) {
         val p = context.applicationContext
@@ -185,8 +193,6 @@ object ThemeSettings {
         _rgbMode = runCatching { RgbMode.valueOf(savedMode) }.getOrDefault(RgbMode.SPECTRUM)
         _rgbOutlineEnabled = p.getBoolean("rgb_outline", false)
 
-        // Speed is stored by SettingsScreen under the shared "fmanager_settings" prefs file,
-        // not "fmanager_theme", so read it from there too.
         val settingsPrefs = context.applicationContext
             .getSharedPreferences("fmanager_settings", Context.MODE_PRIVATE)
         _rgbSpeedSeconds = settingsPrefs.getFloat("rgb_speed", 10f)
@@ -207,7 +213,6 @@ object ThemeSettings {
         prefs?.edit()?.putBoolean("rgb_outline", enabled)?.apply()
     }
 
-    // Called by the Settings screen's slider so the live theme picks up the new speed immediately.
     fun setRgbSpeedSeconds(seconds: Float) {
         _rgbSpeedSeconds = seconds
     }
@@ -282,83 +287,48 @@ fun rememberRgbColor(
     }
 }
 
-/**
- * Full rainbow ring used for the screen-edge glow, animated by rotating its
- * start angle over time. This is what actually gets drawn around the screen,
- * independent of whatever single flat color rememberRgbColor() returns.
- */
-@Composable
-private fun rememberRgbSweepRotation(durationMillis: Int): Float {
-    val transition = rememberInfiniteTransition(label = "rgb_outline_anim")
-    val rotation by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rotation"
-    )
-    return rotation
-}
+// Every point on the ring cycles hue over time, instead of one fixed rainbow spinning
+// in place — this is what makes it read as "flowing RGB" rather than a rotating sticker.
+private fun rollingRainbow(phase: Float, stops: Int = 36): List<Color> =
+    (0..stops).map { i ->
+        val hue = ((i.toFloat() / stops) * 360f + phase * 360f) % 360f
+        Color.hsv(hue, 1f, 1f)
+    }
 
-private val rgbSweepColors = listOf(
-    Color(0xFFFF0000), Color(0xFFFFFF00), Color(0xFF00FF00),
-    Color(0xFF00FFFF), Color(0xFF0000FF), Color(0xFFFF00FF), Color(0xFFFF0000)
-)
-
-/**
- * Draws an animated neon-rainbow border around the full screen content,
- * matching a Pinterest-style "RGB edge glow" wallpaper: a rotating hue ring
- * traced along the outer edge with a soft outward bloom.
- */
 @Composable
 private fun Modifier.rgbScreenGlow(enabled: Boolean, durationSeconds: Float): Modifier {
     if (!enabled) return this
     val durationMillis = (durationSeconds * 1000).toInt().coerceAtLeast(500)
-    val rotationDeg = rememberRgbSweepRotation(durationMillis)
+    val transition = rememberInfiniteTransition(label = "rgb_outline_anim")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(durationMillis, easing = LinearEasing)),
+        label = "phase"
+    )
 
     return this.drawWithContent {
         drawContent()
-
         val strokeWidthPx = 5.dp.toPx()
         val glowWidthPx = 18.dp.toPx()
-        val diagonal = kotlin.math.sqrt(size.width * size.width + size.height * size.height)
+        val colors = rollingRainbow(phase)
+        val brush = Brush.sweepGradient(colors = colors, center = Offset(size.width / 2f, size.height / 2f))
 
-        val brush = Brush.sweepGradient(
-            colors = rgbSweepColors,
-            center = Offset(size.width / 2f, size.height / 2f)
-        )
-
-        rotate(degrees = rotationDeg, pivot = Offset(size.width / 2f, size.height / 2f)) {
-            // Soft outer bloom, then a crisp bright line on top of it.
-            drawRect(
-                brush = brush,
-                topLeft = Offset.Zero,
-                size = size,
-                style = Stroke(width = glowWidthPx),
-                alpha = 0.35f
-            )
-            drawRect(
-                brush = brush,
-                topLeft = Offset.Zero,
-                size = size,
-                style = Stroke(width = strokeWidthPx),
-                alpha = 0.95f
-            )
-        }
+        drawRect(brush = brush, topLeft = Offset.Zero, size = size, style = Stroke(width = glowWidthPx), alpha = 0.35f)
+        drawRect(brush = brush, topLeft = Offset.Zero, size = size, style = Stroke(width = strokeWidthPx), alpha = 0.95f)
     }
 }
 
 private fun buildScheme(s: ThemeSpec, activePrimary: Color, rgbOutline: Boolean): ColorScheme {
-    val glass = s.gradient != null
     val onSurface = if (s.dark) Color(0xFFECE6F0) else Color(0xFF1C1B1F)
     val primaryColor = activePrimary
     val onPrimary = if (primaryColor.luminance() > 0.5f) Color.Black else Color.White
 
     val solidSurface = s.surface.copy(alpha = 1f)
     val primaryContainer = lerp(solidSurface, primaryColor, 0.25f)
-    val page = if (glass) Color.Transparent else s.background
+    // Glass themes render their own blurred backdrop, so the base "page" stays transparent
+    // and content is drawn directly over the blur.
+    val page = if (s.isGlass) Color.Transparent else s.background
 
     val base = if (s.dark) darkColorScheme() else lightColorScheme()
     val outlineColor = if (rgbOutline) activePrimary.copy(alpha = 0.8f) else onSurface.copy(alpha = 0.4f)
@@ -374,7 +344,7 @@ private fun buildScheme(s: ThemeSpec, activePrimary: Color, rgbOutline: Boolean)
         onSecondaryContainer = onSurface,
         background = page,
         onBackground = onSurface,
-        surface = solidSurface,
+        surface = if (s.isGlass) Color.Transparent else solidSurface,
         onSurface = onSurface,
         surfaceTint = Color.Transparent,
         surfaceVariant = lerp(solidSurface, onSurface, 0.08f),
@@ -398,6 +368,8 @@ fun FManagerTheme(content: @Composable () -> Unit) {
         buildScheme(spec, currentPrimary, rgbOutline)
     }
 
+    // Everything drawn inside this Box is what glass surfaces (top bar, sheets,
+    // dialogs) will blur, via Modifier.haze(ThemeSettings.hazeState) below.
     val bg = spec.gradient
         ?.let { Modifier.background(Brush.linearGradient(it)) }
         ?: Modifier.background(spec.background)
@@ -407,7 +379,15 @@ fun FManagerTheme(content: @Composable () -> Unit) {
             Modifier
                 .fillMaxSize()
                 .then(bg)
+                .haze(ThemeSettings.hazeState)
                 .rgbScreenGlow(enabled = rgbOutline, durationSeconds = ThemeSettings.rgbSpeedSeconds)
         ) { content() }
     }
+}
+
+/** True when the active theme should render surfaces as frosted glass. */
+@Composable
+fun currentThemeIsGlass(): Boolean {
+    val systemDark = isSystemInDarkTheme()
+    return ThemeSettings.specFor(systemDark).isGlass
 }
