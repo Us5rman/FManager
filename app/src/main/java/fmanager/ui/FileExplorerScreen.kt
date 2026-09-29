@@ -27,11 +27,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import fmanager.model.ArchiveOps
 import fmanager.model.FileItem
 import fmanager.model.FileOps
@@ -63,6 +65,8 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
 
     // Dialog States
     var selectedItemForMenu by remember { mutableStateOf<FileItem?>(null) }
+    var openAsItem by remember { mutableStateOf<FileItem?>(null) }
+    var archiveViewItem by remember { mutableStateOf<FileItem?>(null) }
     var renameItem by remember { mutableStateOf<FileItem?>(null) }
     var propertiesItem by remember { mutableStateOf<FileItem?>(null) }
     var deleteItem by remember { mutableStateOf<FileItem?>(null) }
@@ -72,7 +76,9 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
 
     // FAB expand/collapse + search reveal
     var fabExpanded by remember { mutableStateOf(false) }
-    var searchOpen by remember { mutableStateOf(false) }
+    // Two distinct search modes instead of one plain field.
+    var searchAllOpen by remember { mutableStateOf(false) }
+    var searchFolderOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
     LaunchedEffect(message) {
@@ -97,6 +103,10 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
         }
         settingsOpen -> SettingsScreen(onClose = { settingsOpen = false }, viewModel = viewModel)
         informationOpen -> InformationScreen(onClose = { informationOpen = false })
+        archiveViewItem != null -> ArchiveContentsScreen(
+            item = archiveViewItem!!,
+            onClose = { archiveViewItem = null }
+        )
         else -> {
             var topMenuExpanded by remember { mutableStateOf(false) }
 
@@ -104,9 +114,36 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                 viewModel.navigateUp()
             }
 
-            val displayedList = remember(fileList, searchQuery) {
-                if (searchQuery.isBlank()) fileList
-                else fileList.filter { it.name.contains(searchQuery, ignoreCase = true) }
+            val displayedList = remember(fileList, searchQuery, searchFolderOpen, searchAllOpen) {
+                when {
+                    searchQuery.isBlank() -> fileList
+                    searchAllOpen -> {
+                        // Deep scan from the device root, all levels.
+                        runCatching {
+                            java.io.File(viewModel.rootPath).walkTopDown()
+                                .filter { it.name.contains(searchQuery, ignoreCase = true) }
+                                .map { FileItem.fromFile(it) }
+                                .toList()
+                        }.getOrDefault(emptyList())
+                    }
+                    searchFolderOpen -> {
+                        // Deep scan: walk every level under the current folder, not just this level.
+                        runCatching {
+                            java.io.File(currentPath).walkTopDown()
+                                .filter { it.path != currentPath }
+                                .filter { it.name.contains(searchQuery, ignoreCase = true) }
+                                .map { FileItem.fromFile(it) }
+                                .toList()
+                        }.getOrDefault(emptyList())
+                    }
+                    else -> fileList.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                }
+            }
+
+            // Name shown at the top: just the current folder, not the app name.
+            val currentFolderName = remember(currentPath, viewModel.rootPath) {
+                if (currentPath == viewModel.rootPath) "Home"
+                else currentPath.substringAfterLast('/')
             }
 
             // Breadcrumb segments built from the current path, each one tappable.
@@ -127,7 +164,11 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                 topBar = {
                     Column {
                         TopAppBar(
-                            title = { Text("File Manager", style = MaterialTheme.typography.titleMedium) },
+                            title = { Text(currentFolderName, style = MaterialTheme.typography.titleMedium) },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.background,
+                                scrolledContainerColor = MaterialTheme.colorScheme.background
+                            ),
                             navigationIcon = {
                                 if (currentPath != viewModel.rootPath) {
                                     IconButton(onClick = { viewModel.navigateUp() }) {
@@ -194,9 +235,9 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                             }
                         }
 
-                        // Search field that grows in from the top, driven by the FAB's "Search" action.
+                        // Search field for either mode, opened from the FAB.
                         AnimatedVisibility(
-                            visible = searchOpen,
+                            visible = searchAllOpen || searchFolderOpen,
                             enter = expandVertically(tween(220)) + fadeIn(tween(220)),
                             exit = shrinkVertically(tween(180)) + fadeOut(tween(140))
                         ) {
@@ -207,12 +248,15 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 4.dp),
                                 singleLine = true,
-                                placeholder = { Text("Search this folder") },
+                                placeholder = {
+                                    Text(if (searchFolderOpen) "Search this folder (all levels)" else "Search all files")
+                                },
                                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                                 trailingIcon = {
                                     IconButton(onClick = {
                                         searchQuery = ""
-                                        searchOpen = false
+                                        searchAllOpen = false
+                                        searchFolderOpen = false
                                     }) {
                                         Icon(Icons.Default.Close, contentDescription = "Close search")
                                     }
@@ -255,9 +299,15 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                             fabExpanded = false
                             showCreateFileDialog = true
                         },
-                        onSearch = {
+                        onSearchAll = {
                             fabExpanded = false
-                            searchOpen = !searchOpen
+                            searchFolderOpen = false
+                            searchAllOpen = true
+                        },
+                        onSearchFolder = {
+                            fabExpanded = false
+                            searchAllOpen = false
+                            searchFolderOpen = true
                         }
                     )
                 }
@@ -266,6 +316,11 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding)
+                        // Blurs the file list while the FAB menu is open so the action
+                        // labels stay readable against any background content/color.
+                        .then(
+                            if (fabExpanded) Modifier.blur(16.dp) else Modifier
+                        )
                 ) {
                     if (displayedList.isEmpty()) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -284,7 +339,7 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                             items(displayedList, key = { it.path }) { item ->
                                 FileGridItem(
                                     item = item,
-                                    onClick = { handleItemClick(item, viewModel) },
+                                    onClick = { handleItemClick(item, viewModel) { archiveViewItem = it } },
                                     onLongClick = { selectedItemForMenu = item }
                                 )
                             }
@@ -297,37 +352,40 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                                 FileListItem(
                                     item = item,
                                     compact = compactSpacing,
-                                    onClick = { handleItemClick(item, viewModel) },
+                                    onClick = { handleItemClick(item, viewModel) { archiveViewItem = it } },
                                     onLongClick = { selectedItemForMenu = item }
                                 )
                             }
                         }
                     }
 
-                    progress?.let { pr ->
-                        Card(
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .fillMaxWidth(0.85f),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                }
+            }
+
+            // Compress/extract/repair progress, shown as its own popup dialog
+            // (was previously an inline card centered over the file list).
+            progress?.let { pr ->
+                Dialog(onDismissRequest = { /* not dismissible by tapping outside */ }) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(pr.label, style = MaterialTheme.typography.titleMedium)
-                                Spacer(Modifier.height(12.dp))
-                                if (pr.fraction >= 0f) {
-                                    LinearProgressIndicator(
-                                        progress = { pr.fraction },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                } else {
-                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                                }
-                                Spacer(Modifier.height(12.dp))
-                                TextButton(onClick = { viewModel.cancelOperation() }) { Text("Cancel") }
+                            Text(pr.label, style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(12.dp))
+                            if (pr.fraction >= 0f) {
+                                LinearProgressIndicator(
+                                    progress = { pr.fraction },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            } else {
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                             }
+                            Spacer(Modifier.height(12.dp))
+                            TextButton(onClick = { viewModel.cancelOperation() }) { Text("Cancel") }
                         }
                     }
                 }
@@ -338,6 +396,10 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                 FileContextMenuSheet(
                     item = item,
                     onDismiss = { selectedItemForMenu = null },
+                    onOpenAs = {
+                        openAsItem = item
+                        selectedItemForMenu = null
+                    },
                     onCopy = {
                         viewModel.setClip(item, ClipMode.COPY)
                         selectedItemForMenu = null
@@ -366,6 +428,19 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                         deleteItem = item
                         selectedItemForMenu = null
                     }
+                )
+            }
+
+            // --- "Open As" chooser, opened from the context menu ---
+            openAsItem?.let { item ->
+                OpenAsDialog(
+                    item = item,
+                    onDismiss = { openAsItem = null },
+                    onChooseText = { viewModel.openEditor(item) },
+                    onChooseImage = { viewModel.openViewer(item, OpenKind.IMAGE) },
+                    onChooseVideo = { viewModel.openViewer(item, OpenKind.VIDEO) },
+                    onChooseAudio = { viewModel.openViewer(item, OpenKind.AUDIO) },
+                    onChooseArchive = { archiveViewItem = item }
                 )
             }
 
@@ -523,9 +598,11 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
 }
 
 /**
- * Circular FAB, bottom-right, that expands into three labeled actions
- * (Search / New File / New Folder) with a smooth scale+fade, colored from
- * the current theme's primary color.
+ * Circular FAB, bottom-right, that expands into four labeled actions
+ * (Search All Files / Search This Folder / New File / New Folder) with a
+ * smooth scale+fade, colored from the current theme's primary color.
+ * The screen behind it is blurred while this is open (see the content Box's
+ * .blur modifier) so the labels stay readable over any background.
  */
 @Composable
 private fun ExpandableFab(
@@ -533,7 +610,8 @@ private fun ExpandableFab(
     onToggle: () -> Unit,
     onNewFolder: () -> Unit,
     onNewFile: () -> Unit,
-    onSearch: () -> Unit
+    onSearchAll: () -> Unit,
+    onSearchFolder: () -> Unit
 ) {
     Column(horizontalAlignment = Alignment.End) {
         AnimatedVisibility(
@@ -542,7 +620,8 @@ private fun ExpandableFab(
             exit = fadeOut(tween(150)) + shrinkVertically(tween(160))
         ) {
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                MiniFabAction(Icons.Default.Search, "Search", onSearch)
+                MiniFabAction(Icons.Default.Public, "Search All Files", onSearchAll)
+                MiniFabAction(Icons.Default.Search, "Search This Folder", onSearchFolder)
                 MiniFabAction(Icons.Default.NoteAdd, "New File", onNewFile)
                 MiniFabAction(Icons.Default.CreateNewFolder, "New Folder", onNewFolder)
                 Spacer(Modifier.height(4.dp))
@@ -599,9 +678,17 @@ private fun MiniFabAction(
     }
 }
 
-private fun handleItemClick(item: FileItem, viewModel: FileManagerViewModel) {
+private fun handleItemClick(
+    item: FileItem,
+    viewModel: FileManagerViewModel,
+    onOpenArchive: (FileItem) -> Unit
+) {
     if (item.isDirectory) {
         viewModel.loadDirectory(item.path)
+    } else if (ArchiveOps.canExtract(item.name)) {
+        // Archives (zip/7z/tar family/rar, including rar5) show their contents
+        // in a browsable list instead of opening in the text editor.
+        onOpenArchive(item)
     } else {
         val lower = item.name.lowercase()
         when {
@@ -699,3 +786,120 @@ private fun FileGridItem(
         }
     }
 }
+
+/**
+ * Read-only "peek inside" screen for archives: lists entry names/sizes without
+ * extracting anything to disk. Supports zip/jar/apk, 7z, tar family, and rar
+ * (including rar5, since junrar 7.x reads both rar4 and rar5 through the same
+ * Archive API already used for extraction in ArchiveOps).
+ */
+private data class ArchiveEntryRow(val name: String, val isDirectory: Boolean, val size: Long)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ArchiveContentsScreen(item: FileItem, onClose: () -> Unit) {
+    BackHandler(onBack = onClose)
+
+    var entries by remember { mutableStateOf<List<ArchiveEntryRow>>(emptyList()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(item.path) {
+        loading = true
+        error = null
+        val result = withContextIO {
+            runCatching { listArchiveEntries(item) }
+        }
+        result.onSuccess { entries = it }
+            .onFailure { error = it.message ?: "Could not read archive" }
+        loading = false
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            when {
+                loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+                error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        "Couldn't open archive: ${error}",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(24.dp),
+                        textAlign = TextAlign.Center
+                    )
+                }
+                entries.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Archive is empty", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                else -> LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
+                    items(entries, key = { it.name }) { entry ->
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    entry.name.trimEnd('/').substringAfterLast('/'),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            supportingContent = {
+                                Text(
+                                    if (entry.isDirectory) "Folder"
+                                    else "${entry.name} • ${formatBytes(entry.size)}"
+                                )
+                            },
+                            leadingContent = {
+                                Icon(
+                                    if (entry.isDirectory) Icons.Default.Folder else Icons.Default.InsertDriveFile,
+                                    contentDescription = null,
+                                    tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private suspend fun <T> withContextIO(block: suspend () -> T): T =
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { block() }
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes < 1024) return "$bytes B"
+    val units = arrayOf("KB", "MB", "GB", "TB")
+    var value = bytes / 1024.0
+    var i = -1
+    while (value >= 1024 && i < units.size - 1) {
+        value /= 1024.0
+        i++
+    }
+    return if (i < 0) "%.0f B".format(bytes.toDouble())
+    else "%.1f %s".format(value, units[i])
+}
+
+private fun listArchiveEntries(item: FileItem): List<ArchiveEntryRow> {
+    val file = java.io.File(item.path)
+    val name = file.name.lowercase()
+    return when {
+        name.endsWith(".zip") || name.endsWith(".jar") || name.endsWith(".apk") ->
+            java.util.zip.ZipFile(file).use { zf ->
+                zf.entries().asSequence().map {
+                    ArchiveEntryRow(it.name, it.isDirectory, it.size.coerceAtLeast(0L))
+                }.toList()
+            }
+
+        name.endsWith(".7z") ->
+            or
