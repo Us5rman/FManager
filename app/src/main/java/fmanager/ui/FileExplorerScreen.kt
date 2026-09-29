@@ -424,32 +424,6 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                             value = folderName,
                             onValueChange = { folderName = it },
                             singleLine = true,
-                            label = { Text("Folder Name") }
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            if (folderName.isNotBlank()) viewModel.createFolder(folderName.trim())
-                            showCreateFolderDialog = false
-                        }) { Text("Create") }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showCreateFolderDialog = false }) { Text("Cancel") }
-                    }
-                )
-            }
-
-            // --- New File Dialog ---
-            if (showCreateFileDialog) {
-                var fileName by remember { mutableStateOf("") }
-                AlertDialog(
-                    onDismissRequest = { showCreateFileDialog = false },
-                    title = { Text("Create File") },
-                    text = {
-                        OutlinedTextField(
-                            value = fileName,
-                            onValueChange = { fileName = it },
-                            singleLine = true,
                             label = { Text("File Name") }
                         )
                     },
