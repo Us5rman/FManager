@@ -124,6 +124,7 @@ fun SettingsScreen(onClose: () -> Unit, viewModel: FileManagerViewModel) {
                             onValueChange = {
                                 rgbDurationSeconds = it
                                 prefs.edit().putFloat("rgb_speed", it).apply()
+                                ThemeSettings.setRgbSpeedSeconds(it)
                             },
                             valueRange = 3f..30f,
                             steps = 26,
