@@ -2,7 +2,10 @@ package fmanager.ui
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.pm.PackageManager
+import android.opengl.EGL14
 import android.opengl.GLES20
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
@@ -59,21 +62,18 @@ fun InformationScreen(onClose: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            // 1. --- Storage Information ---
             Text("Storage Overview", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(8.dp))
             StorageInfoSection(context)
 
             Spacer(Modifier.height(24.dp))
 
-            // 2. --- Memory & Hardware Metrics (RAM, zRAM, CPU, GPU, Thermal, Vulkan) ---
             Text("Hardware & System Diagnostics", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(8.dp))
             HardwareInfoCard(context)
 
             Spacer(Modifier.height(24.dp))
 
-            // 3. --- About App Accordion Section ---
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
@@ -109,7 +109,6 @@ fun InformationScreen(onClose: () -> Unit) {
                             Divider()
                             Spacer(Modifier.height(12.dp))
 
-                            // Repository Link
                             Text("Source Code & Repository", style = MaterialTheme.typography.titleSmall)
                             Spacer(Modifier.height(4.dp))
                             TextButton(
@@ -125,7 +124,6 @@ fun InformationScreen(onClose: () -> Unit) {
 
                             Spacer(Modifier.height(16.dp))
 
-                            // App Update Section
                             Text("Update App", style = MaterialTheme.typography.titleSmall)
                             Spacer(Modifier.height(4.dp))
                             Text(
@@ -293,18 +291,14 @@ private fun HardwareInfoCard(context: Context) {
     val totalRamGb = "%.1f".format(memoryInfo.totalMem / (1024f * 1024f * 1024f))
     val availRamGb = "%.1f".format(memoryInfo.availMem / (1024f * 1024f * 1024f))
     val usedRamGb = "%.1f".format((memoryInfo.totalMem - memoryInfo.availMem) / (1024f * 1024f * 1024f))
-    
-    val swapTotal = remember { readProcMemInfo("SwapTotal") }
+
     val swapFree = remember { readProcMemInfo("SwapFree") }
-    val zRamInfo = "$swapFree free / $swapTotal total"
 
     val cpuName = remember { readCpuModel() }
-    val gpuRenderer = remember { GLES20.glGetString(GLES20.GL_RENDERER) ?: "Adreno / Mali Graphics" }
-    val gpuVendor = remember { GLES20.glGetString(GLES20.GL_VENDOR) ?: "System Default" }
-    val driverVersion = remember { GLES20.glGetString(GLES20.GL_VERSION) ?: "OpenGL ES 3.2" }
+    val gpuInfo = remember { readGpuInfo() }
     val vulkanVersion = remember { checkVulkanVersion(context) }
-    val cpuTemp = remember { readThermalSensor("cpu") }
-    val gpuTemp = remember { readThermalSensor("gpu") }
+
+    val battery = rememberBatteryStatus(context)
 
     val manufacturer = remember { Build.MANUFACTURER.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() } }
 
@@ -315,13 +309,11 @@ private fun HardwareInfoCard(context: Context) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             InfoRow(icon = Icons.Default.PhoneAndroid, label = "Device Model", value = "$manufacturer ${Build.MODEL}")
             InfoRow(icon = Icons.Default.DeveloperBoard, label = "RAM Usage", value = "$usedRamGb GB / $totalRamGb GB (Free: $availRamGb GB)")
-            InfoRow(icon = Icons.Default.Memory, label = "zRAM / Swap", value = zRamInfo)
+            InfoRow(icon = Icons.Default.Memory, label = "Swap Free", value = swapFree)
             InfoRow(icon = Icons.Default.Speed, label = "CPU Name", value = cpuName)
-            InfoRow(icon = Icons.Default.Thermostat, label = "CPU Temp", value = cpuTemp)
-            InfoRow(icon = Icons.Default.Tv, label = "GPU Name", value = "$gpuVendor $gpuRenderer")
-            InfoRow(icon = Icons.Default.Thermostat, label = "GPU Temp", value = gpuTemp)
+            InfoRow(icon = Icons.Default.Tv, label = "GPU Name", value = gpuInfo)
             InfoRow(icon = Icons.Default.GraphicEq, label = "Vulkan Version", value = vulkanVersion)
-            InfoRow(icon = Icons.Default.SettingsSystemDaydream, label = "Driver Version", value = driverVersion)
+            InfoRow(icon = Icons.Default.BatteryFull, label = "Battery", value = "${battery.percent}% • ${battery.temp}")
             InfoRow(icon = Icons.Default.Android, label = "Android Version", value = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
         }
     }
@@ -349,7 +341,6 @@ private fun InfoRow(
     }
 }
 
-// Helpers for reading system metrics
 private fun readProcMemInfo(key: String): String {
     return runCatching {
         File("/proc/meminfo").useLines { lines ->
@@ -370,26 +361,71 @@ private fun readCpuModel(): String {
     }.getOrNull() ?: Build.HARDWARE
 }
 
-private fun readThermalSensor(type: String): String {
+// Reads the real GPU renderer string via a headless EGL context (no on-screen GL surface needed)
+private fun readGpuInfo(): String {
     return runCatching {
-        val thermalDir = File("/sys/class/thermal")
-        val zone = thermalDir.listFiles()?.firstOrNull { file ->
-            val tType = File(file, "type").takeIf { it.exists() }?.readText()?.lowercase() ?: ""
-            tType.contains(type)
-        }
-        val tempRaw = File(zone, "temp").takeIf { it?.exists() == true }?.readText()?.trim()?.toFloatOrNull()
-        if (tempRaw != null) {
-            val tempC = if (tempRaw > 1000) tempRaw / 1000f else tempRaw
-            "%.1f °C".format(tempC)
-        } else "38.5 °C"
-    }.getOrDefault("N/A")
+        val display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+        val version = IntArray(2)
+        EGL14.eglInitialize(display, version, 0, version, 1)
+
+        val configAttribs = intArrayOf(
+            EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+            EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
+            EGL14.EGL_NONE
+        )
+        val configs = arrayOfNulls<android.opengl.EGLConfig>(1)
+        val numConfigs = IntArray(1)
+        EGL14.eglChooseConfig(display, configAttribs, 0, configs, 0, 1, numConfigs, 0)
+
+        val contextAttribs = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
+        val eglContext = EGL14.eglCreateContext(display, configs[0], EGL14.EGL_NO_CONTEXT, contextAttribs, 0)
+
+        val pbufferAttribs = intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE)
+        val pbuffer = EGL14.eglCreatePbufferSurface(display, configs[0], pbufferAttribs, 0)
+
+        EGL14.eglMakeCurrent(display, pbuffer, pbuffer, eglContext)
+
+        val vendor = GLES20.glGetString(GLES20.GL_VENDOR) ?: "Unknown"
+        val renderer = GLES20.glGetString(GLES20.GL_RENDERER) ?: "Unknown"
+
+        EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+        EGL14.eglDestroySurface(display, pbuffer)
+        EGL14.eglDestroyContext(display, eglContext)
+        EGL14.eglTerminate(display)
+
+        "$vendor $renderer"
+    }.getOrDefault("Unknown GPU")
 }
 
+// Reports the highest Vulkan API version this device actually advertises
 private fun checkVulkanVersion(context: Context): String {
     val pm = context.packageManager
-    return if (pm.hasSystemFeature("android.hardware.vulkan.version")) {
-        "Vulkan 1.3 Supported"
-    } else {
-        "Not Supported / Basic"
+    if (!pm.hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_VERSION)) {
+        return "Not Supported"
+    }
+    val info = pm.systemAvailableFeatures
+        .firstOrNull { it.name == PackageManager.FEATURE_VULKAN_HARDWARE_VERSION }
+    val packed = info?.version ?: 0
+    val major = (packed shr 22) and 0x3FF
+    val minor = (packed shr 12) and 0x3FF
+    val patch = packed and 0xFFF
+    return if (packed == 0) "Supported (version unknown)" else "Vulkan $major.$minor.$patch"
+}
+
+data class BatteryStatus(val percent: Int, val temp: String)
+
+@Composable
+private fun rememberBatteryStatus(context: Context): BatteryStatus {
+    return remember {
+        val intent = context.registerReceiver(
+            null,
+            android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
+        )
+        val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val pct = if (level >= 0 && scale > 0) (level * 100 / scale) else -1
+        val tempTenths = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+        val tempStr = if (tempTenths >= 0) "%.1f °C".format(tempTenths / 10f) else "N/A"
+        BatteryStatus(pct, tempStr)
     }
 }
