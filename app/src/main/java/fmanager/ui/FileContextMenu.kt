@@ -3,6 +3,7 @@ package fmanager.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -10,10 +11,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.materials.HazeMaterials
 import fmanager.model.ArchiveOps
 import fmanager.model.FileItem
+import fmanager.ui.theme.ThemeSettings
+import fmanager.ui.theme.currentThemeIsGlass
 
 /**
  * Bottom sheet shown when a file or folder is long-pressed.
@@ -34,10 +40,18 @@ fun FileContextMenuSheet(
     onDelete: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val isGlass = currentThemeIsGlass()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState
+        sheetState = sheetState,
+        containerColor = if (isGlass) androidx.compose.ui.graphics.Color.Transparent
+                          else MaterialTheme.colorScheme.surface,
+        modifier = if (isGlass) {
+            Modifier
+                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                .hazeChild(state = ThemeSettings.hazeState, style = HazeMaterials.thin())
+        } else Modifier
     ) {
         Column(Modifier.padding(bottom = 24.dp)) {
             Row(
@@ -90,10 +104,6 @@ fun FileContextMenuSheet(
     }
 }
 
-/**
- * "Open As" chooser dialog, same visual language as the context menu sheet
- * (ListItem rows, same icon/tint style), listing every viewer the app has.
- */
 @Composable
 fun OpenAsDialog(
     item: FileItem,
