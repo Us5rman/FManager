@@ -95,7 +95,7 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
             OpenKind.IMAGE -> ImageViewerScreen(v.item) { viewModel.closeViewer() }
             else -> MediaPlayerScreen(v.item, v.kind == OpenKind.VIDEO) { viewModel.closeViewer() }
         }
-        settingsOpen -> SettingsScreen(onClose = { settingsOpen = false })
+        settingsOpen -> SettingsScreen(onClose = { settingsOpen = false }, viewModel = viewModel)
         informationOpen -> InformationScreen(onClose = { informationOpen = false })
         else -> {
             var topMenuExpanded by remember { mutableStateOf(false) }
@@ -423,6 +423,32 @@ fun FileExplorerScreen(viewModel: FileManagerViewModel) {
                         OutlinedTextField(
                             value = folderName,
                             onValueChange = { folderName = it },
+                            singleLine = true,
+                            label = { Text("Folder Name") }
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            if (folderName.isNotBlank()) viewModel.createFolder(folderName.trim())
+                            showCreateFolderDialog = false
+                        }) { Text("Create") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showCreateFolderDialog = false }) { Text("Cancel") }
+                    }
+                )
+            }
+
+            // --- New File Dialog ---
+            if (showCreateFileDialog) {
+                var fileName by remember { mutableStateOf("") }
+                AlertDialog(
+                    onDismissRequest = { showCreateFileDialog = false },
+                    title = { Text("Create File") },
+                    text = {
+                        OutlinedTextField(
+                            value = fileName,
+                            onValueChange = { fileName = it },
                             singleLine = true,
                             label = { Text("File Name") }
                         )
