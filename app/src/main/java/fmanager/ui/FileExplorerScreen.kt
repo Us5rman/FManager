@@ -903,4 +903,45 @@ private fun listArchiveEntries(item: FileItem): List<ArchiveEntryRow> {
             }
 
         name.endsWith(".7z") ->
-            or
+            org.apache.commons.compress.archivers.sevenz.SevenZFile(file).use { sz ->
+                sz.entries.map { ArchiveEntryRow(it.name, it.isDirectory, it.size.coerceAtLeast(0L)) }
+            }
+
+        name.endsWith(".rar") ->
+            com.github.junrar.Archive(file).use { rar ->
+                rar.fileHeaders.map {
+                    ArchiveEntryRow(
+                        it.fileName.replace('\\', '/'),
+                        it.isDirectory,
+                        it.fullUnpackSize.coerceAtLeast(0L)
+                    )
+                }
+            }
+
+        name.endsWith(".tar.gz") || name.endsWith(".tgz") || name.endsWith(".tar.bz2") ||
+        name.endsWith(".tbz2") || name.endsWith(".tbz") || name.endsWith(".tar.xz") ||
+        name.endsWith(".txz") || name.endsWith(".tar") -> {
+            val raw = java.io.BufferedInputStream(java.io.FileInputStream(file))
+            val decompressed = when {
+                name.endsWith(".gz") || name.endsWith(".tgz") ->
+                    org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream(raw)
+                name.endsWith(".bz2") || name.endsWith(".tbz2") || name.endsWith(".tbz") ->
+                    org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream(raw)
+                name.endsWith(".xz") || name.endsWith(".txz") ->
+                    org.apache.commons.compress.compressors.xz.XZCompressorInputStream(raw)
+                else -> raw
+            }
+            org.apache.commons.compress.archivers.tar.TarArchiveInputStream(decompressed).use { tin ->
+                val list = mutableListOf<ArchiveEntryRow>()
+                var e = tin.nextEntry
+                while (e != null) {
+                    list += ArchiveEntryRow(e.name, e.isDirectory, e.size.coerceAtLeast(0L))
+                    e = tin.nextEntry
+                }
+                list
+            }
+        }
+
+        else -> emptyList()
+    }
+}
