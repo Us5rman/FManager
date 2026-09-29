@@ -23,7 +23,6 @@ import kotlin.coroutines.coroutineContext
 
 enum class ClipMode { COPY, MOVE }
 data class Clip(val path: String, val mode: ClipMode)
-data class OpProgress(val label: String, val fraction: Float)
 
 class FileManagerViewModel(application: Application) : AndroidViewModel(application) {
 
