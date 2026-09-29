@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import fmanager.ui.theme.RgbMode
 import fmanager.ui.theme.ThemeSettings
 import fmanager.ui.theme.ThemeSpec
@@ -42,7 +43,7 @@ private val backgroundPalette = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onClose: () -> Unit) {
+fun SettingsScreen(onClose: () -> Unit, viewModel: FileManagerViewModel = viewModel()) {
     val context = LocalContext.current
     BackHandler(onBack = onClose)
 
@@ -50,7 +51,8 @@ fun SettingsScreen(onClose: () -> Unit) {
     var showHiddenFiles by remember { mutableStateOf(prefs.getBoolean("show_hidden", false)) }
     var foldersFirst by remember { mutableStateOf(prefs.getBoolean("folders_first", true)) }
     var confirmDelete by remember { mutableStateOf(prefs.getBoolean("confirm_delete", true)) }
-    var viewMode by remember { mutableStateOf(prefs.getString("view_mode", "List") ?: "List") }
+    // Reads live from the ViewModel now, so this always reflects what the file list is actually using.
+    val viewMode by viewModel.viewMode.collectAsState()
     var isCompactDensity by remember { mutableStateOf(prefs.getBoolean("compact_density", false)) }
     var rgbDurationSeconds by remember { mutableStateOf(prefs.getFloat("rgb_speed", 10f)) }
 
@@ -106,6 +108,10 @@ fun SettingsScreen(onClose: () -> Unit) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
+                            // This switch is the actual screen-edge outline toggle (see FManagerTheme).
+                            // It was already only touching ThemeSettings, so the outline itself was
+                            // correct — it just wasn't being drawn as a screen border anywhere (fixed
+                            // in the theme file, not here).
                             Text("Screen Edge RGB Glow", style = MaterialTheme.typography.bodyMedium)
                             Switch(
                                 checked = ThemeSettings.rgbOutlineEnabled,
@@ -194,7 +200,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                 checked = showHiddenFiles,
                 onCheckedChange = {
                     showHiddenFiles = it
-                    prefs.edit().putBoolean("show_hidden", it).apply()
+                    viewModel.toggleShowHiddenFiles(it)
                 }
             )
 
@@ -204,7 +210,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                 checked = foldersFirst,
                 onCheckedChange = {
                     foldersFirst = it
-                    prefs.edit().putBoolean("folders_first", it).apply()
+                    viewModel.toggleFoldersFirst(it)
                 }
             )
 
@@ -214,7 +220,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                 checked = isCompactDensity,
                 onCheckedChange = {
                     isCompactDensity = it
-                    prefs.edit().putBoolean("compact_density", it).apply()
+                    viewModel.toggleCompactSpacing(it)
                 }
             )
 
@@ -241,18 +247,12 @@ fun SettingsScreen(onClose: () -> Unit) {
                 SingleChoiceSegmentedButtonRow {
                     SegmentedButton(
                         selected = viewMode == "List",
-                        onClick = {
-                            viewMode = "List"
-                            prefs.edit().putString("view_mode", "List").apply()
-                        },
+                        onClick = { viewModel.setViewMode("List") },
                         shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
                     ) { Text("List") }
                     SegmentedButton(
                         selected = viewMode == "Grid",
-                        onClick = {
-                            viewMode = "Grid"
-                            prefs.edit().putString("view_mode", "Grid").apply()
-                        },
+                        onClick = { viewModel.setViewMode("Grid") },
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
                     ) { Text("Grid") }
                 }
