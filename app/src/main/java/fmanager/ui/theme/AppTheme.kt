@@ -13,12 +13,15 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.dp
 
 enum class RgbMode(val label: String) {
     SPECTRUM("Smooth Spectrum"),
@@ -159,13 +162,14 @@ object ThemeSettings {
     var customBackground by mutableStateOf(0xFFE6F8EE.toInt())
         private set
 
-    // Private mutable backing states to prevent Kotlin from generating JVM setter methods
     private var _rgbMode by mutableStateOf(RgbMode.SPECTRUM)
     private var _rgbOutlineEnabled by mutableStateOf(false)
+    // Animation speed in seconds, matching the slider on the Settings screen (3..30).
+    private var _rgbSpeedSeconds by mutableStateOf(10f)
 
-    // Public read-only val properties (NO generated setters = NO signature clashes)
     val rgbMode: RgbMode get() = _rgbMode
     val rgbOutlineEnabled: Boolean get() = _rgbOutlineEnabled
+    val rgbSpeedSeconds: Float get() = _rgbSpeedSeconds
 
     fun init(context: Context) {
         val p = context.applicationContext
@@ -179,6 +183,12 @@ object ThemeSettings {
         val savedMode = p.getString("rgb_mode", RgbMode.SPECTRUM.name) ?: RgbMode.SPECTRUM.name
         _rgbMode = runCatching { RgbMode.valueOf(savedMode) }.getOrDefault(RgbMode.SPECTRUM)
         _rgbOutlineEnabled = p.getBoolean("rgb_outline", false)
+
+        // Speed is stored by SettingsScreen under the shared "fmanager_settings" prefs file,
+        // not "fmanager_theme", so read it from there too.
+        val settingsPrefs = context.applicationContext
+            .getSharedPreferences("fmanager_settings", Context.MODE_PRIVATE)
+        _rgbSpeedSeconds = settingsPrefs.getFloat("rgb_speed", 10f)
     }
 
     fun setTheme(id: String) {
@@ -194,6 +204,11 @@ object ThemeSettings {
     fun setRgbOutline(enabled: Boolean) {
         _rgbOutlineEnabled = enabled
         prefs?.edit()?.putBoolean("rgb_outline", enabled)?.apply()
+    }
+
+    // Called by the Settings screen's slider so the live theme picks up the new speed immediately.
+    fun setRgbSpeedSeconds(seconds: Float) {
+        _rgbSpeedSeconds = seconds
     }
 
     fun updateCustom(accent: Int? = null, background: Int? = null) {
@@ -232,7 +247,7 @@ object ThemeSettings {
 @Composable
 fun rememberRgbColor(
     mode: RgbMode = ThemeSettings.rgbMode,
-    durationMillis: Int = 10000
+    durationMillis: Int = (ThemeSettings.rgbSpeedSeconds * 1000).toInt().coerceAtLeast(500)
 ): Color {
     val transition = rememberInfiniteTransition(label = "rgb_anim")
     val progress by transition.animateFloat(
@@ -266,12 +281,80 @@ fun rememberRgbColor(
     }
 }
 
+/**
+ * Full rainbow ring used for the screen-edge glow, animated by rotating its
+ * start angle over time. This is what actually gets drawn around the screen,
+ * independent of whatever single flat color rememberRgbColor() returns.
+ */
+@Composable
+private fun rememberRgbSweepRotation(durationMillis: Int): Float {
+    val transition = rememberInfiniteTransition(label = "rgb_outline_anim")
+    val rotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
+    return rotation
+}
+
+private val rgbSweepColors = listOf(
+    Color(0xFFFF0000), Color(0xFFFFFF00), Color(0xFF00FF00),
+    Color(0xFF00FFFF), Color(0xFF0000FF), Color(0xFFFF00FF), Color(0xFFFF0000)
+)
+
+/**
+ * Draws an animated neon-rainbow border around the full screen content,
+ * matching a Pinterest-style "RGB edge glow" wallpaper: a rotating hue ring
+ * traced along the outer edge with a soft outward bloom.
+ */
+@Composable
+private fun Modifier.rgbScreenGlow(enabled: Boolean, durationSeconds: Float): Modifier {
+    if (!enabled) return this
+    val durationMillis = (durationSeconds * 1000).toInt().coerceAtLeast(500)
+    val rotationDeg = rememberRgbSweepRotation(durationMillis)
+
+    return this.drawWithContent {
+        drawContent()
+
+        val strokeWidthPx = 5.dp.toPx()
+        val glowWidthPx = 18.dp.toPx()
+        val diagonal = kotlin.math.sqrt(size.width * size.width + size.height * size.height)
+
+        val brush = Brush.sweepGradient(
+            colors = rgbSweepColors,
+            center = Offset(size.width / 2f, size.height / 2f)
+        )
+
+        rotate(degrees = rotationDeg, pivot = Offset(size.width / 2f, size.height / 2f)) {
+            // Soft outer bloom, then a crisp bright line on top of it.
+            drawRect(
+                brush = brush,
+                topLeft = Offset.Zero,
+                size = size,
+                style = Stroke(width = glowWidthPx),
+                alpha = 0.35f
+            )
+            drawRect(
+                brush = brush,
+                topLeft = Offset.Zero,
+                size = size,
+                style = Stroke(width = strokeWidthPx),
+                alpha = 0.95f
+            )
+        }
+    }
+}
+
 private fun buildScheme(s: ThemeSpec, activePrimary: Color, rgbOutline: Boolean): ColorScheme {
     val glass = s.gradient != null
     val onSurface = if (s.dark) Color(0xFFECE6F0) else Color(0xFF1C1B1F)
     val primaryColor = activePrimary
     val onPrimary = if (primaryColor.luminance() > 0.5f) Color.Black else Color.White
-    
+
     val solidSurface = s.surface.copy(alpha = 1f)
     val primaryContainer = lerp(solidSurface, primaryColor, 0.25f)
     val page = if (glass) Color.Transparent else s.background
@@ -310,15 +393,20 @@ fun FManagerTheme(content: @Composable () -> Unit) {
     val currentPrimary = if (isRgb) dynamicRgbColor else spec.primary
     val rgbOutline = isRgb && ThemeSettings.rgbOutlineEnabled
 
-    val scheme = remember(spec, currentPrimary, rgbOutline) { 
-        buildScheme(spec, currentPrimary, rgbOutline) 
+    val scheme = remember(spec, currentPrimary, rgbOutline) {
+        buildScheme(spec, currentPrimary, rgbOutline)
     }
-    
+
     val bg = spec.gradient
         ?.let { Modifier.background(Brush.linearGradient(it)) }
         ?: Modifier.background(spec.background)
 
     MaterialTheme(colorScheme = scheme) {
-        Box(Modifier.fillMaxSize().then(bg)) { content() }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(bg)
+                .rgbScreenGlow(enabled = rgbOutline, durationSeconds = ThemeSettings.rgbSpeedSeconds)
+        ) { content() }
     }
 }
