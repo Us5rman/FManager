@@ -3,8 +3,6 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
-val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
-
 android {
     namespace = "com.fmanager.app"
     compileSdk = 34
@@ -13,8 +11,8 @@ android {
         applicationId = "com.fmanager.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = runNumber
-        versionName = "1.0.$runNumber"
+        versionCode = 1
+        versionName = "0.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
