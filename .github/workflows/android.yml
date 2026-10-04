@@ -45,12 +45,17 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      - name: Publish GitHub release
+      - name: Publish nightly build
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cp app/build/outputs/apk/release/*.apk FManager.apk
-          gh release create "v1.0.${{ github.run_number }}" FManager.apk \
-            --title "FManager 1.0.${{ github.run_number }}" \
-            --notes "Automated build"
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release upload nightly FManager.apk --clobber
+          else
+            gh release create nightly FManager.apk \
+              --title "Nightly build" \
+              --notes "Latest nightly build, auto-updated on every push" \
+              --prerelease
+          fi
